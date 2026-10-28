@@ -18,6 +18,20 @@ An outfit image is optional; you can describe the outfit in text instead. If you
 
 On iOS Safari, folder selection is not supported. Use **Choose images** to pick individual files.
 
+## Browsing by category
+
+The library reads the categories that are already in the downloaded file names, so no extra data is needed:
+
+- **Poses** (`full_single_P001_front.png`): filter by series (full body standard, full body glamour, upper body, two people) and by angle (front, high, low, side, three-quarter). The **By pose** view groups the five angles of each pose into one card; hover an angle to preview it and click to choose it. **Each image** shows every file separately.
+- **Faces** (`ai-face-….png`, `ai-styling-….png`): filter by face or styling images.
+
+To also filter by the original sites' pose categories, pose names and hairstyles, load their catalog data with the **Catalog** button:
+
+- Poses: open [ai-pose-gallery.pages.dev](https://ai-pose-gallery.pages.dev/), save the page with Ctrl+S (⌘S on Mac) and choose the saved HTML file.
+- Faces: open [ai-portrait-gallery.pages.dev/data/images.js](https://ai-portrait-gallery.pages.dev/data/images.js), save it and choose the file.
+
+You can also drop those files into your materials folder; they are picked up automatically when you load the folder. The catalog is parsed in your browser and kept in its localStorage. This repository does not include any data from the original sites.
+
 ## Material sources and rules
 
 Compose Studio does not rehost any materials. Download them from the original sites and follow each site's rules:
@@ -71,6 +85,7 @@ Any OpenAI-compatible endpoint works, including Ollama (`http://127.0.0.1:11434/
 ```
 index.html              Markup, styles and the SVG icon sprite
 js/i18n.js              Interface strings (Traditional Chinese, English) and translation helpers
+js/catalog.js           File-name parsing and optional catalog import for categories
 js/presets.js           Scene options (edit this file to add options)
 js/prompt.js            Prompt builder (English, Japanese, Chinese)
 js/adapters/registry.js Engine registry and shared helpers
@@ -110,7 +125,7 @@ Engine.adapters.register({
 
 ## Privacy
 
-By default, API keys are not saved. They are stored in the browser's localStorage only if you tick **Remember settings on this device** in Settings. Reference images are sent only from your device to the engine you choose. Generated images are kept in memory and are lost when you reload the page.
+By default, API keys are not saved. Catalog data you import is kept in this browser's localStorage until you clear it in the Catalog dialog. They are stored in the browser's localStorage only if you tick **Remember settings on this device** in Settings. Reference images are sent only from your device to the engine you choose. Generated images are kept in memory and are lost when you reload the page.
 
 ## Acceptable use
 

@@ -1,6 +1,7 @@
 (function () {
   const E = window.Engine;
   const I = E.i18n;
+  const C = E.catalog;
   const t = E.t;
   const tx = E.tx;
   const $ = (sel) => document.querySelector(sel);
@@ -52,7 +53,8 @@
     libs: { face: [], outfit: [], pose: [] },
     selected: { face: null, outfit: null, pose: null },
     tab: 'face',
-    filter: { face: { folder: '', q: '' }, outfit: { folder: '', q: '' }, pose: { folder: '', q: '' } },
+    filter: {},
+    poseAngle: {},
     page: { face: 1, outfit: 1, pose: 1 },
     pendingSlot: 'face',
     promptEdited: false,
@@ -69,6 +71,8 @@
       enhancer: {}
     }
   };
+
+  for (const s of SLOTS) state.filter[s.id] = emptyFilter();
 
   // ---------- 儲存 ----------
   function loadPrefs() {
@@ -142,10 +146,23 @@
   }
 
   // ---------- 素材庫 ----------
-  function addFiles(slot, fileList) {
-    const files = Array.from(fileList).filter((f) => /\.(png|jpe?g|webp)$/i.test(f.name));
+  function emptyFilter() {
+    return { folder: '', q: '', series: '', cat: '', angle: '', section: '', hair: '', view: 'pose' };
+  }
+
+  async function addFiles(slot, fileList) {
+    const all = Array.from(fileList);
+    const files = all.filter((f) => /\.(png|jpe?g|webp)$/i.test(f.name));
+    // 資料夾內如有從原站儲存的分類資料檔，一併讀取
+    const metaFiles = all.filter((f) => /\.(html?|js|json)$/i.test(f.name) && f.size < 8 * 1024 * 1024);
+    const metaMsgs = [];
+    for (const f of metaFiles) {
+      const res = await importMetaFile(f);
+      if (res) metaMsgs.push(metaStatus(res));
+    }
     if (!files.length) {
-      setStatus(t('status.noImages'), true);
+      if (metaMsgs.length) { setStatus(metaMsgs.join(' ')); renderLibrary(); }
+      else setStatus(t('status.noImages'), true);
       return;
     }
     const lib = state.libs[slot];
@@ -158,35 +175,166 @@
       seen.add(id);
       const segs = path.split('/');
       const folder = segs.length > 2 ? segs[segs.length - 2] : segs.length === 2 ? segs[0] : '';
-      lib.push({ id, file: f, path, folder, name: f.name.replace(/\.[^.]+$/, ''), url: null });
+      const name = f.name.replace(/\.[^.]+$/, '');
+      lib.push({ id, file: f, path, folder, name, info: C.parse(name), url: null, thumb: null });
       added++;
     }
     lib.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
     state.page[slot] = 1;
-    setStatus(t('status.loaded', { n: added, label: slotLabel(slot) }));
+    setStatus([t('status.loaded', { n: added, label: slotLabel(slot) }), ...metaMsgs].join(' '));
     renderTabs();
     renderLibrary();
+  }
+
+  async function importMetaFile(file) {
+    try { return C.importText(await file.text()); } catch (e) { return null; }
+  }
+  function metaStatus(res) {
+    return t(res.kind === 'pose' ? 'status.metaPose' : 'status.metaFace', { n: res.n });
   }
 
   function clearLibrary(slot) {
-    for (const item of state.libs[slot]) if (item.url) URL.revokeObjectURL(item.url);
+    for (const item of state.libs[slot]) {
+      if (item.url) URL.revokeObjectURL(item.url);
+      if (item.thumb && item.thumb !== item.url) URL.revokeObjectURL(item.thumb);
+    }
     state.libs[slot] = [];
     if (state.selected[slot]) { state.selected[slot] = null; renderSlots(); updatePrompt(); }
-    state.filter[slot] = { folder: '', q: '' };
+    state.filter[slot] = emptyFilter();
     renderTabs();
     renderLibrary();
   }
 
-  function thumbUrl(item) {
+  function fullUrl(item) {
     if (!item.url) item.url = URL.createObjectURL(item.file);
     return item.url;
   }
 
-  function filtered(slot) {
-    const { folder, q } = state.filter[slot];
-    const needle = q.trim().toLowerCase();
-    return state.libs[slot].filter((i) =>
-      (!folder || i.folder === folder) && (!needle || i.path.toLowerCase().includes(needle)));
+  // 縮圖：只在圖片接近可見範圍時才製作，約 320px 闊的 JPEG，製作後快取
+  const THUMB_W = 320;
+  const thumbQueue = [];
+  let thumbBusy = 0;
+  const thumbObserver = 'IntersectionObserver' in window
+    ? new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          thumbObserver.unobserve(e.target);
+          thumbQueue.push(e.target);
+        }
+        pumpThumbs();
+      }, { rootMargin: '400px' })
+    : null;
+  function setThumb(img, item) {
+    img.thumbItem = item;
+    if (item.thumb) { img.src = item.thumb; return; }
+    img.removeAttribute('src');
+    if (thumbObserver) thumbObserver.observe(img);
+    else { thumbQueue.push(img); pumpThumbs(); }
+  }
+  function pumpThumbs() {
+    while (thumbBusy < 4 && thumbQueue.length) {
+      const img = thumbQueue.shift();
+      const item = img.thumbItem;
+      if (!item || !img.isConnected) continue;
+      thumbBusy++;
+      makeThumb(item)
+        .then((url) => { if (img.thumbItem === item) img.src = url; })
+        .finally(() => { thumbBusy--; pumpThumbs(); });
+    }
+  }
+  function makeThumb(item) {
+    if (item.thumb) return Promise.resolve(item.thumb);
+    if (!item.thumbJob) {
+      item.thumbJob = (async () => {
+        try {
+          const bmp = await createImageBitmap(item.file, { resizeWidth: THUMB_W, resizeQuality: 'medium' });
+          const k = Math.min(1, THUMB_W / bmp.width);
+          const c = document.createElement('canvas');
+          c.width = Math.round(bmp.width * k);
+          c.height = Math.round(bmp.height * k);
+          const ctx = c.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, c.width, c.height);
+          ctx.drawImage(bmp, 0, 0, c.width, c.height);
+          bmp.close();
+          const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.82));
+          item.thumb = URL.createObjectURL(blob);
+        } catch (e) {
+          item.thumb = fullUrl(item);
+        }
+        return item.thumb;
+      })();
+    }
+    return item.thumbJob;
+  }
+  const thumbImg = (item, cls) => {
+    const img = el('img', { class: cls || null, alt: '', decoding: 'async' });
+    setThumb(img, item);
+    return img;
+  };
+
+  // 篩選
+  const sectionOf = (item) => (item.info && item.info.kind === 'face' ? item.info.section : 'other');
+  const seriesOf = (item) => (item.info && item.info.kind === 'pose' ? item.info.series : '');
+  function searchText(item) {
+    const i = item.info;
+    const parts = [item.path];
+    if (i && i.kind === 'pose') {
+      const m = C.poseMeta(i);
+      parts.push(m.cat, m.name, C.seriesName(i.series), t(`angle.${i.angle}`));
+    } else if (i && i.kind === 'face') {
+      const m = C.faceMeta(i);
+      parts.push(m.hair, m.style, C.hairName(m.hair), t(`section.${i.section}`));
+    }
+    return parts.join(' ').toLowerCase();
+  }
+  // skip：計算某個篩選項目的數量時，忽略該項目本身
+  function matches(slot, item, f, skip) {
+    if (skip !== 'folder' && f.folder && item.folder !== f.folder) return false;
+    if (slot === 'pose') {
+      if (skip !== 'series' && f.series && seriesOf(item) !== f.series) return false;
+      if (skip !== 'cat' && f.cat && C.poseMeta(item.info).cat !== f.cat) return false;
+      if (skip !== 'angle' && f.angle && !(item.info && item.info.angle === f.angle)) return false;
+    }
+    if (slot === 'face') {
+      if (skip !== 'section' && f.section && sectionOf(item) !== f.section) return false;
+      if (skip !== 'hair' && f.hair && C.faceMeta(item.info).hair !== f.hair) return false;
+    }
+    const needle = f.q.trim().toLowerCase();
+    return !needle || searchText(item).includes(needle);
+  }
+  function filtered(slot, skip) {
+    const f = state.filter[slot];
+    return state.libs[slot].filter((i) => matches(slot, i, f, skip));
+  }
+  function countBy(list, keyOf) {
+    const m = new Map();
+    for (const i of list) { const k = keyOf(i); m.set(k, (m.get(k) || 0) + 1); }
+    return m;
+  }
+  // 把同一姿勢的各角度合併為一組
+  function groupPoses(list) {
+    const groups = [];
+    const byKey = new Map();
+    for (const item of list) {
+      const i = item.info;
+      const key = i && i.kind === 'pose' ? i.key : `item|${item.id}`;
+      let g = byKey.get(key);
+      if (!g) {
+        g = { key, info: i && i.kind === 'pose' ? i : null, items: {}, list: [] };
+        byKey.set(key, g);
+        groups.push(g);
+      }
+      g.list.push(item);
+      if (g.info && !g.items[i.angle]) g.items[i.angle] = item;
+    }
+    const order = (s) => { const n = C.SERIES.indexOf(s); return n < 0 ? C.SERIES.length : n; };
+    groups.sort((a, b) => (a.info && b.info ? order(a.info.series) - order(b.info.series) : 0));
+    for (const g of groups) {
+      g.order = C.ANGLES.map((a) => g.items[a]).filter(Boolean);
+      for (const item of g.list) if (!g.order.includes(item)) g.order.push(item);
+    }
+    return groups;
   }
 
   function pickFolder(slot) {
@@ -215,11 +363,26 @@
     renderSlots();
   }
 
+  // 篩選列的元件
+  function facetTabs(label, entries, value, onPick) {
+    return el('div', { class: 'ftabs', role: 'group', 'aria-label': label }, ...entries.map(([v, text, n]) => el('button', {
+      class: 'ftab', 'aria-pressed': String(value === v), onclick: () => onPick(v)
+    }, text, n != null ? el('span', { class: 'n', text: String(n) }) : null)));
+  }
+  function segmented(label, entries, value, onPick) {
+    return el('div', { class: 'seg', role: 'group', 'aria-label': label }, ...entries.map(([v, text]) => el('button', {
+      type: 'button', 'aria-pressed': String(value === v), onclick: () => onPick(v)
+    }, text)));
+  }
+
+  let redrawGrid = null;
+
   function renderLibrary() {
     const slot = state.tab;
     const meta = SLOTS.find((s) => s.id === slot);
     const box = $('#library');
     const lib = state.libs[slot];
+    redrawGrid = null;
 
     if (!lib.length) {
       const desc = meta.source
@@ -235,56 +398,201 @@
       return;
     }
 
-    const folders = [...new Set(lib.map((i) => i.folder).filter(Boolean))];
     const f = state.filter[slot];
-
-    const search = el('input', { type: 'search', placeholder: t('lib.searchPh'), value: f.q, 'aria-label': t('lib.search') });
+    const rerender = () => { state.page[slot] = 1; renderLibrary(); };
+    const search = el('input', { type: 'search', placeholder: t(`lib.searchPh.${slot}`), value: f.q, 'aria-label': t('lib.search') });
     search.addEventListener('input', () => { f.q = search.value; state.page[slot] = 1; renderGrid(); });
 
     const toolbar = el('div', { class: 'toolbar' },
       el('label', { class: 'search' }, icon('search'), search),
-      folders.length > 1
-        ? (() => {
-            const sel = el('select', { class: 'pill-select', 'aria-label': t('lib.folder') },
-              el('option', { value: '', text: t('lib.allFolders') }),
-              ...folders.map((name) => el('option', { value: name, text: name, selected: f.folder === name })));
-            sel.addEventListener('change', () => { f.folder = sel.value; state.page[slot] = 1; renderGrid(); });
-            return sel;
-          })()
-        : null,
       el('button', { class: 'btn small', onclick: () => pickFolder(slot) }, icon('folder-plus'), t('lib.addFolder')),
-      el('button', { class: 'btn small ghost', onclick: () => clearLibrary(slot) }, icon('trash'), t('lib.clear')),
-      el('span', { class: 'shown', id: 'shownCount' }));
+      slot !== 'outfit' ? el('button', { class: 'btn small', onclick: openMeta }, icon('tag'), t('lib.meta')) : null,
+      el('button', { class: 'btn small ghost', onclick: () => clearLibrary(slot) }, icon('trash'), t('lib.clear')));
 
+    // 依素材類型建立篩選列
+    const rows = [];
+    if (slot === 'pose') {
+      const parsed = lib.some((i) => seriesOf(i));
+      if (parsed) {
+        const bySeries = countBy(filtered(slot, 'series'), seriesOf);
+        const present = [...new Set(lib.map(seriesOf).filter(Boolean))]
+          .sort((a, b) => ((C.SERIES.indexOf(a) + 1 || 99) - (C.SERIES.indexOf(b) + 1 || 99)));
+        rows.push(facetTabs(t('lib.series'), [['', t('lib.all'), filtered(slot, 'series').length],
+          ...present.map((s) => [s, C.seriesName(s), bySeries.get(s) || 0])], f.series, (v) => { f.series = v; f.cat = ''; rerender(); }));
+
+        const line = el('div', { class: 'frow' });
+        const cats = [...countBy(filtered(slot, 'cat'), (i) => C.poseMeta(i.info).cat)].filter(([c]) => c)
+          .sort((a, b) => a[0].localeCompare(b[0], 'ja'));
+        if (cats.length) {
+          const sel = el('select', { class: 'pill-select', 'aria-label': t('lib.cat') },
+            el('option', { value: '', text: t('lib.allCats') }),
+            ...cats.map(([c, n]) => el('option', { value: c, text: `${c}（${n}）`, selected: f.cat === c })));
+          sel.addEventListener('change', () => { f.cat = sel.value; rerender(); });
+          line.append(sel);
+        }
+        line.append(
+          segmented(t('lib.angle'), [['', t('lib.allAngles')], ...C.ANGLES.map((a) => [a, t(`angle.${a}`)])], f.angle, (v) => { f.angle = v; rerender(); }),
+          segmented(t('lib.view'), [['pose', t('lib.view.pose')], ['card', t('lib.view.card')]], f.view, (v) => { f.view = v; rerender(); }));
+        rows.push(line);
+      }
+    }
+    if (slot === 'face' && lib.some((i) => i.info && i.info.kind === 'face')) {
+      const bySec = countBy(filtered(slot, 'section'), sectionOf);
+      const secs = [...C.SECTIONS, 'other'].filter((s) => lib.some((i) => sectionOf(i) === s));
+      rows.push(facetTabs(t('lib.section'), [['', t('lib.all'), filtered(slot, 'section').length],
+        ...secs.map((s) => [s, t(`section.${s}`), bySec.get(s) || 0])], f.section, (v) => { f.section = v; rerender(); }));
+    }
+    if (slot === 'face') {
+      const byHair = countBy(filtered(slot, 'hair'), (i) => C.faceMeta(i.info).hair);
+      const hairs = [...byHair.keys()].filter(Boolean)
+        .sort((a, b) => ((C.HAIRS.indexOf(a) + 1 || 99) - (C.HAIRS.indexOf(b) + 1 || 99)));
+      if (hairs.length) {
+        rows.push(facetTabs(t('lib.hair'), [['', t('lib.allHair'), null], ...hairs.map((h) => [h, C.hairName(h), byHair.get(h)])],
+          f.hair, (v) => { f.hair = v; rerender(); }));
+      }
+    }
+    const folders = [...new Set(lib.map((i) => i.folder).filter(Boolean))];
+    if (folders.length > 1) {
+      const sel = el('select', { class: 'pill-select', 'aria-label': t('lib.folder') },
+        el('option', { value: '', text: t('lib.allFolders') }),
+        ...folders.map((name) => el('option', { value: name, text: name, selected: f.folder === name })));
+      sel.addEventListener('change', () => { f.folder = sel.value; rerender(); });
+      rows.push(el('div', { class: 'frow' }, sel));
+    }
+
+    const facets = el('div', { class: 'facets' }, ...rows);
+    const countLine = el('div', { class: 'shown', id: 'shownCount' });
     const grid = el('div', { class: 'grid', id: 'grid' });
     const more = el('div', { class: 'more', id: 'more' });
-    box.replaceChildren(toolbar, grid, more);
+    box.replaceChildren(el('div', { class: 'lib-head' }, toolbar, rows.length ? facets : null, countLine), grid, more);
+    redrawGrid = renderGrid;
     renderGrid();
 
     function renderGrid() {
       const list = filtered(slot);
-      const page = list.slice(0, state.page[slot] * PAGE);
       const sel = state.selected[slot];
-      grid.replaceChildren(...page.map((item) => el('button', {
-        class: 'item', 'aria-pressed': String(!!sel && sel.id === item.id), title: item.path,
-        onclick: () => select(slot, item)
-      }, el('img', { src: thumbUrl(item), alt: item.name, loading: 'lazy', decoding: 'async' }),
-        el('span', { class: 'item-name', 'aria-hidden': 'true', text: item.name }))));
-      $('#shownCount').textContent = t('lib.count', { n: list.length });
-      more.replaceChildren(list.length > page.length
-        ? el('button', { class: 'btn', onclick: () => { state.page[slot]++; renderGrid(); } }, icon('chevron'), t('lib.more', { n: Math.min(PAGE, list.length - page.length) }))
+      const byPose = slot === 'pose' && f.view === 'pose' && list.some((i) => seriesOf(i));
+      if (byPose) {
+        const groups = groupPoses(list);
+        const page = groups.slice(0, state.page[slot] * PAGE);
+        grid.className = 'grid poses';
+        grid.replaceChildren(...page.map((g) => poseCard(slot, g, sel)));
+        $('#shownCount').textContent = t('lib.posesCount', { p: groups.length, n: list.length });
+        setMore(groups.length - page.length);
+      } else {
+        const page = list.slice(0, state.page[slot] * PAGE);
+        grid.className = 'grid';
+        grid.replaceChildren(...page.map((item) => itemTile(slot, item, sel)));
+        $('#shownCount').textContent = t('lib.count', { n: list.length });
+        setMore(list.length - page.length);
+      }
+      if (!list.length) grid.replaceChildren(el('p', { class: 'nomatch', text: t('lib.noMatch') }));
+    }
+    function setMore(rest) {
+      more.replaceChildren(rest > 0
+        ? el('button', { class: 'btn', onclick: () => { state.page[slot]++; renderGrid(); } }, icon('chevron'), t('lib.more', { n: Math.min(PAGE, rest) }))
         : '');
     }
+  }
+
+  // 合成區顯示的名稱：有分類資料時用姿勢名稱或髮型
+  function displayName(item) {
+    const i = item.info;
+    if (i && i.kind === 'pose') {
+      const m = C.poseMeta(i);
+      return `${m.name || i.num} · ${t(`angle.${i.angle}`)}`;
+    }
+    if (i && i.kind === 'face') {
+      const m = C.faceMeta(i);
+      return [m.hair && C.hairName(m.hair), m.style].filter(Boolean).join(' · ') || item.name;
+    }
+    return item.name;
+  }
+
+  // 單張圖片
+  function itemTile(slot, item, sel) {
+    const i = item.info;
+    let tag = '';
+    let label = item.name;
+    if (i && i.kind === 'pose') {
+      const m = C.poseMeta(i);
+      tag = `${i.num} · ${t(`angle.${i.angle}`)}`;
+      if (m.name) label = m.name;
+    } else if (i && i.kind === 'face') {
+      const m = C.faceMeta(i);
+      tag = m.hair ? C.hairName(m.hair) : '';
+      if (m.style) label = m.style;
+    }
+    return el('button', {
+      class: 'item', 'data-id': item.id, 'aria-pressed': String(!!sel && sel.id === item.id),
+      'aria-label': label, title: label === item.name ? item.path : `${label}\n${item.path}`,
+      onclick: () => select(slot, item)
+    }, thumbImg(item), tag ? el('span', { class: 'tag', 'aria-hidden': 'true', text: tag }) : null,
+      el('span', { class: 'item-name', 'aria-hidden': 'true', text: label }));
+  }
+
+  // 姿勢卡：主圖 + 各角度縮圖
+  function poseCard(slot, g, sel) {
+    const f = state.filter[slot];
+    const has = (item) => !!sel && sel.id === item.id;
+    let cur = (f.angle && g.items[f.angle]) || g.items[state.poseAngle[g.key]] || g.list.find(has) || g.order[0];
+    const i = g.info;
+    const m = C.poseMeta(i);
+    const name = m.name || (i ? i.num : cur.name);
+    const sub = i ? [C.seriesName(i.series), m.cat].filter(Boolean).join(' · ') : cur.name;
+    const angleName = (item) => (item.info && item.info.angle ? t(`angle.${item.info.angle}`) : item.name);
+
+    const mainImg = thumbImg(cur);
+    const main = el('button', {
+      class: 'pmain', 'data-id': cur.id, 'aria-pressed': String(has(cur)),
+      'aria-label': `${name} · ${angleName(cur)}`, title: cur.path,
+      onclick: () => select(slot, cur)
+    }, mainImg, i ? el('span', { class: 'pnum', 'aria-hidden': 'true', text: i.num }) : null);
+
+    const strip = g.order.length > 1 ? el('div', { class: 'pstrip' }, ...g.order.map((item) => {
+      const b = el('button', {
+        type: 'button', 'data-id': item.id, class: item === cur ? 'on' : null, 'aria-pressed': String(has(item)),
+        'aria-label': `${name} · ${angleName(item)}`, title: angleName(item),
+        onclick: () => select(slot, item)
+      }, thumbImg(item), el('span', { 'aria-hidden': 'true', text: angleName(item) }));
+      const show = () => {
+        cur = item;
+        if (item.info && item.info.angle) state.poseAngle[g.key] = item.info.angle;
+        setThumb(mainImg, item);
+        main.dataset.id = item.id;
+        main.title = item.path;
+        main.setAttribute('aria-label', `${name} · ${angleName(item)}`);
+        main.setAttribute('aria-pressed', String(has(item)));
+        strip.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+      };
+      b.addEventListener('mouseenter', show);
+      b.addEventListener('focus', show);
+      return b;
+    })) : null;
+
+    return el('article', { class: `pcard${g.list.some(has) ? ' picked' : ''}` },
+      main,
+      el('div', { class: 'pmeta' }, el('strong', { text: name, title: name }), el('span', { text: sub, title: sub })),
+      strip);
   }
 
   function select(slot, item) {
     const cur = state.selected[slot];
     state.selected[slot] = cur && cur.id === item.id ? null : item;
     renderSlots();
-    document.querySelectorAll('#grid .item').forEach((b) => {
-      b.setAttribute('aria-pressed', String(!!state.selected[slot] && b.title === state.selected[slot].path));
-    });
+    if (redrawGrid && state.tab === slot) redrawGrid();
     updatePrompt();
+  }
+
+  // ---------- 分類資料 ----------
+  function openMeta() {
+    renderMetaInfo();
+    $('#metaDlg').showModal();
+  }
+  function renderMetaInfo() {
+    const c = C.counts();
+    $('#metaInfo').textContent = c.pose || c.face ? t('meta.info', { p: c.pose, f: c.face }) : t('meta.none');
+    $('#metaClear').disabled = !(c.pose || c.face);
   }
 
   // ---------- 合成區的三格 ----------
@@ -299,15 +607,15 @@
         el('span', { class: 'en', text: s.en }));
       const frame = el('button', {
         class: `slot-frame${item ? ' filled' : ''}${state.tab === s.id ? ' active' : ''}`,
-        'aria-label': t('slot.aria', { label, name: item ? item.name : t('slot.none') }),
+        'aria-label': t('slot.aria', { label, name: item ? displayName(item) : t('slot.none') }),
         onclick: () => setTab(s.id)
       }, item
-        ? el('img', { src: thumbUrl(item), alt: '' })
+        ? el('img', { src: fullUrl(item), alt: '' })
         : el('span', { class: 'slot-empty' },
           el('span', { class: 'glyph' }, icon(s.id)),
           el('span', { text: t(`slot.pick.${s.id}`) })));
       const meta = el('div', { class: 'slot-meta' },
-        el('span', { class: 'name', text: item ? item.name : t('slot.none'), title: item ? item.path : null }),
+        el('span', { class: 'name', text: item ? displayName(item) : t('slot.none'), title: item ? item.path : null }),
         item ? el('button', { class: 'clear', onclick: () => { state.selected[s.id] = null; renderSlots(); renderLibrary(); updatePrompt(); } }, icon('x'), t('slot.remove')) : null);
       host.replaceChildren(head, frame, meta);
     }
@@ -557,6 +865,25 @@
 
     document.querySelectorAll('.lang-switch [data-lang]').forEach((b) => {
       b.addEventListener('click', () => { if (b.dataset.lang !== I.lang) setUiLang(b.dataset.lang); });
+    });
+    $('#metaPick').addEventListener('click', () => { $('#metaInput').value = ''; $('#metaInput').click(); });
+    $('#metaInput').addEventListener('change', async (e) => {
+      const msgs = [];
+      for (const file of e.target.files) {
+        const res = await importMetaFile(file);
+        if (res) msgs.push(metaStatus(res));
+      }
+      setStatus(msgs.length ? msgs.join(' ') : t('status.metaFail'), !msgs.length);
+      $('#metaNote').textContent = msgs.length ? msgs.join(' ') : t('status.metaFail');
+      renderMetaInfo();
+      renderLibrary();
+    });
+    $('#metaClear').addEventListener('click', () => {
+      C.clear();
+      for (const slot of ['face', 'pose']) Object.assign(state.filter[slot], { cat: '', hair: '' });
+      $('#metaNote').textContent = '';
+      renderMetaInfo();
+      renderLibrary();
     });
     $('#folderInput').addEventListener('change', (e) => addFiles(state.pendingSlot, e.target.files));
     $('#filesInput').addEventListener('change', (e) => addFiles(state.pendingSlot, e.target.files));
