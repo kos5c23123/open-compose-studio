@@ -1,0 +1,295 @@
+// 介面語言（繁體中文、English）。Prompt 語言另行設定，見 prompt.js。
+// 用法：Engine.t('key', { n: 3 })；字串中的 {n} 會被替換。
+// 各 adapter 可用 Engine.i18n.add({ zh: {...}, en: {...} }) 加入自己的字串。
+window.Engine = window.Engine || {};
+
+(function () {
+  const dict = { zh: {}, en: {} };
+  let lang = 'zh';
+
+  const I = Engine.i18n = {
+    langs: [
+      { id: 'zh', short: '中', name: '繁體中文', html: 'zh-Hant' },
+      { id: 'en', short: 'EN', name: 'English', html: 'en' }
+    ],
+    get lang() { return lang; },
+    set(id) { if (dict[id]) lang = id; },
+    add(strings) {
+      for (const id of Object.keys(strings)) Object.assign(dict[id] || (dict[id] = {}), strings[id]);
+    },
+    has(key) { return dict[lang][key] != null || dict.en[key] != null || dict.zh[key] != null; },
+    t(key, vars) {
+      let s = dict[lang][key] ?? dict.en[key] ?? dict.zh[key] ?? key;
+      if (vars) s = s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
+      return s;
+    },
+    // adapter 的 name、help、label 可以是字典鍵、普通字串，或 { zh, en } 物件
+    tx(v) {
+      if (v && typeof v === 'object') return v[lang] ?? v.en ?? v.zh ?? '';
+      if (typeof v === 'string' && I.has(v)) return I.t(v);
+      return v == null ? '' : String(v);
+    },
+    // 瀏覽器首選語言為中文時用中文，否則用英文
+    detect() {
+      const first = (navigator.languages && navigator.languages[0]) || navigator.language || '';
+      return /^zh/i.test(first) ? 'zh' : 'en';
+    }
+  };
+  Engine.t = I.t;
+  Engine.tx = I.tx;
+
+  I.add({
+    zh: {
+      'doc.title': '合成棚：人物 + 服裝 + 姿勢 一鍵生成',
+      'brand.tagline': '選擇人物、服裝與姿勢，一鍵交由 AI 合成',
+      'lang.group': '介面語言',
+      'top.sources': '素材來源',
+      'top.settings': '設定',
+
+      'stage.label': '合成組合',
+      'readout.label': '目前的鏡頭設定',
+      'slot.face': '人物',
+      'slot.outfit': '服裝',
+      'slot.pose': '姿勢',
+      'slot.pick.face': '選擇一張人物圖',
+      'slot.pick.outfit': '選擇服裝圖，或以文字描述',
+      'slot.pick.pose': '選擇一張姿勢圖',
+      'slot.none': '未選擇',
+      'slot.aria': '{label}：{name}，按此在下方選擇',
+      'slot.remove': '移除',
+      'result.title': '結果',
+      'result.view': '查看大圖',
+      'result.empty': '生成的圖片會顯示在這裡',
+      'result.latest': '最新結果',
+      'history.label': '之前生成的圖片',
+      'history.item': '較早的結果 {n}',
+      'gen.go': '生成',
+      'gen.cancel': '取消',
+      'engine.pick': '選擇生成引擎',
+
+      'lib.label': '素材庫',
+      'lib.title': '素材庫',
+      'lib.local': '圖片只會保留在你的裝置上',
+      'lib.empty.face': '尚未載入人物素材',
+      'lib.empty.outfit': '尚未載入服裝素材',
+      'lib.empty.pose': '尚未載入姿勢素材',
+      'lib.dl.before': '請到原站下載',
+      'lib.dl.after': '的圖片，放入一個資料夾，再在此載入。圖片只會保留在你的裝置上。',
+      'lib.outfitHint': '選擇一個存放服裝圖的資料夾。沒有服裝圖也可以，在場景設定中以文字描述即可。',
+      'lib.loadFolder': '載入資料夾',
+      'lib.pickFiles': '選擇圖片',
+      'lib.search': '搜尋',
+      'lib.searchPh': '搜尋檔名，例如 P012、front',
+      'lib.folder': '資料夾',
+      'lib.allFolders': '全部資料夾',
+      'lib.addFolder': '加入資料夾',
+      'lib.clear': '清空',
+      'lib.count': '{n} 張',
+      'lib.more': '再顯示 {n} 張',
+
+      'scene.label': '場景設定',
+      'scene.title': '場景設定',
+      'scene.max': '最多 {n} 個',
+      'f.outfit': '服裝描述',
+      'f.outfitHint': '未選服裝圖時使用，例如「白色襯衫配深藍色百褶裙」',
+      'f.hair': '髮型',
+      'f.hairHint': '留空則沿用人物圖',
+      'f.keepHair': '保持人物圖的髮型',
+      'f.extra': '補充指示',
+      'f.extraPh': '例如：手持一杯咖啡，背景有櫻花',
+
+      'prompt.title': '指令',
+      'prompt.lang': 'Prompt 語言',
+      'prompt.lang.en': '英文（多數模型最穩定）',
+      'prompt.lang.ja': '日文',
+      'prompt.lang.zh': '中文',
+      'prompt.hint': '會自動更新；你也可以直接修改，修改後不會再被覆蓋，直至按下「重新生成」。',
+      'prompt.copy': '複製 prompt',
+      'prompt.reset': '重新生成',
+      'prompt.enhance': '以本地 LLM 潤飾',
+      'note.stale': '你修改過 prompt，新的選項尚未套用。按「重新生成」更新。',
+      'note.edited': '你修改過 prompt。',
+      'note.enhanced': '已由本地 LLM 潤飾。',
+
+      'status.noImages': '所選位置找不到 PNG、JPG 或 WebP 圖片。',
+      'status.loaded': '已載入 {n} 張{label}圖。',
+      'status.preparing': '準備中…',
+      'status.done': '完成，共生成 {n} 張。',
+      'status.cancelled': '已取消。',
+      'status.copied': '已複製 prompt。',
+      'status.copyFail': '瀏覽器不允許複製，請手動選取文字複製。',
+      'status.enhancing': '本地 LLM 潤飾中…',
+      'status.enhanced': '潤飾完成。',
+      'status.prepRefs': '準備參考圖…',
+
+      'foot': '合成棚只是工具，不包含任何素材。所有圖片由你自行從原站下載，並在本機載入，不會上傳到本網站。請遵守各素材的使用規則：不得用於表現真人或未成年人，不得冒充真人，不得再分發原圖。',
+
+      'set.title': '設定',
+      'set.done': '完成',
+      'set.engine': '生成引擎',
+      'set.enhancer': '本地 LLM（潤飾 prompt，可選）',
+      'set.enhancerHelp': '支援 OpenAI 相容介面，例如 Ollama 或 LM Studio。',
+      'set.privacy': '私隱',
+      'set.remember': '在此裝置記住設定（包括 API key）',
+      'set.privacyHelp': '設定只會儲存在瀏覽器的 localStorage。參考圖只會直接傳送到你選擇的引擎。',
+      'kind.cloud': '雲端',
+      'kind.local': '本地',
+
+      'src.title': '素材來源與使用規則',
+      'src.ok': '知道了',
+      'src.intro': '合成棚不會提供或轉載任何素材。請到以下原站下載，再以「載入資料夾」選擇你下載的資料夾。',
+      'src.author': '作者',
+      'src.site': '原站',
+      'src.pose.title': '姿勢：ポーズ集 POSE-DB-01',
+      'src.pose.r1': '免費，創作的作品可作商業用途，亦可編輯',
+      'src.pose.r2': '圖片數據本身（包括加工後的版本）禁止再分發、轉載或轉售',
+      'src.pose.r3': '不得用於表現真人或未成年人，亦不得用於違反公序良俗的用途',
+      'src.face.title': '人物：AIモデル顔データベース',
+      'src.face.r1': 'CC0，可作商業用途，亦可編輯',
+      'src.face.r2': '全部為 AI 生成的虛構人物；不得冒充真人',
+      'src.face.r3': '作者請求不要再分發或轉載圖片本身',
+      'src.outfit.title': '服裝',
+      'src.outfit.text': 'ギア 正在製作服裝資料庫，公開後請遵守其規則。目前可使用你有權使用的服裝圖，或直接以文字描述。',
+      'src.note': '以上規則整理自原站，一切以原站最新版本為準。',
+
+      'view.title': '結果',
+      'view.download': '下載',
+      'view.close': '關閉',
+      'view.alt': '生成結果',
+
+      'field.apiKey': 'API key',
+      'field.model': '模型',
+      'err.readImage': '讀取圖片失敗',
+      'err.cancelled': '已取消',
+      'err.reply': '{service} 回覆 {status}：{detail}',
+      'err.network': '無法連接 {service}。{hint}',
+      'hint.checkNet': '請檢查網絡連線，並確認 API key 正確。'
+    },
+    en: {
+      'doc.title': 'Compose Studio: face + outfit + pose in one click',
+      'brand.tagline': 'Pick a face, an outfit and a pose. AI puts them together.',
+      'lang.group': 'Interface language',
+      'top.sources': 'Sources',
+      'top.settings': 'Settings',
+
+      'stage.label': 'Composition',
+      'readout.label': 'Current camera settings',
+      'slot.face': 'Face',
+      'slot.outfit': 'Outfit',
+      'slot.pose': 'Pose',
+      'slot.pick.face': 'Choose a face',
+      'slot.pick.outfit': 'Choose an outfit, or describe it',
+      'slot.pick.pose': 'Choose a pose',
+      'slot.none': 'None',
+      'slot.aria': '{label}: {name}. Click to choose below.',
+      'slot.remove': 'Remove',
+      'result.title': 'Result',
+      'result.view': 'View full size',
+      'result.empty': 'Your image will appear here',
+      'result.latest': 'Latest result',
+      'history.label': 'Earlier results',
+      'history.item': 'Earlier result {n}',
+      'gen.go': 'Generate',
+      'gen.cancel': 'Cancel',
+      'engine.pick': 'Choose image engine',
+
+      'lib.label': 'Library',
+      'lib.title': 'Reference images',
+      'lib.local': 'Images stay on your device',
+      'lib.empty.face': 'No face images yet',
+      'lib.empty.outfit': 'No outfit images yet',
+      'lib.empty.pose': 'No pose images yet',
+      'lib.dl.before': 'Download images from ',
+      'lib.dl.after': ', put them in a folder and load it here. The images stay on your device.',
+      'lib.outfitHint': 'Choose a folder of outfit images. No outfit images? Describe the outfit in the scene settings instead.',
+      'lib.loadFolder': 'Load folder',
+      'lib.pickFiles': 'Choose images',
+      'lib.search': 'Search',
+      'lib.searchPh': 'Search file names, e.g. P012, front',
+      'lib.folder': 'Folder',
+      'lib.allFolders': 'All folders',
+      'lib.addFolder': 'Add folder',
+      'lib.clear': 'Clear',
+      'lib.count': '{n} images',
+      'lib.more': 'Show {n} more',
+
+      'scene.label': 'Scene settings',
+      'scene.title': 'Scene & camera',
+      'scene.max': 'Up to {n}',
+      'f.outfit': 'Outfit description',
+      'f.outfitHint': 'Used when no outfit image is selected, e.g. "white shirt with a navy pleated skirt"',
+      'f.hair': 'Hairstyle',
+      'f.hairHint': 'Leave empty to follow the face image',
+      'f.keepHair': 'Keep the hairstyle from the face image',
+      'f.extra': 'Extra instructions',
+      'f.extraPh': 'e.g. holding a cup of coffee, cherry blossoms in the background',
+
+      'prompt.title': 'Instructions',
+      'prompt.lang': 'Prompt language',
+      'prompt.lang.en': 'English (most reliable)',
+      'prompt.lang.ja': 'Japanese',
+      'prompt.lang.zh': 'Chinese',
+      'prompt.hint': 'Updates automatically. You can also edit it directly; your edits are kept until you press "Rebuild".',
+      'prompt.copy': 'Copy prompt',
+      'prompt.reset': 'Rebuild',
+      'prompt.enhance': 'Polish with local LLM',
+      'note.stale': 'You edited the prompt, so new choices are not applied yet. Press "Rebuild" to update it.',
+      'note.edited': 'You edited the prompt.',
+      'note.enhanced': 'Polished by the local LLM.',
+
+      'status.noImages': 'No PNG, JPG or WebP images found in your selection.',
+      'status.loaded': 'Loaded {n} images into {label}.',
+      'status.preparing': 'Preparing…',
+      'status.done': 'Done. Generated {n} image(s).',
+      'status.cancelled': 'Cancelled.',
+      'status.copied': 'Prompt copied.',
+      'status.copyFail': 'The browser blocked copying. Select the text and copy it manually.',
+      'status.enhancing': 'Polishing with the local LLM…',
+      'status.enhanced': 'Polish complete.',
+      'status.prepRefs': 'Preparing reference images…',
+
+      'foot': 'Compose Studio is only a tool and ships no materials. You download every image from its original site yourself and load it on your own device; nothing is uploaded to this site. Follow each source\'s rules: do not depict real people or minors, do not impersonate real people, and do not redistribute the original images.',
+
+      'set.title': 'Settings',
+      'set.done': 'Done',
+      'set.engine': 'Image engine',
+      'set.enhancer': 'Local LLM (optional prompt polish)',
+      'set.enhancerHelp': 'Works with any OpenAI-compatible endpoint, such as Ollama or LM Studio.',
+      'set.privacy': 'Privacy',
+      'set.remember': 'Remember settings on this device (including API keys)',
+      'set.privacyHelp': 'Settings are stored only in this browser\'s localStorage. Reference images go straight to the engine you choose.',
+      'kind.cloud': 'Cloud',
+      'kind.local': 'Local',
+
+      'src.title': 'Sources and usage rules',
+      'src.ok': 'Got it',
+      'src.intro': 'Compose Studio does not provide or rehost any materials. Download them from the sites below, then pick the downloaded folder with "Load folder".',
+      'src.author': 'By',
+      'src.site': 'Site',
+      'src.pose.title': 'Poses: ポーズ集 POSE-DB-01',
+      'src.pose.r1': 'Free; works you create may be used commercially, and the images may be edited',
+      'src.pose.r2': 'The image data itself, including processed versions, may not be redistributed, reposted or resold',
+      'src.pose.r3': 'Must not be used to depict real people or minors, or for uses against public order and morals',
+      'src.face.title': 'Faces: AIモデル顔データベース',
+      'src.face.r1': 'CC0; commercial use and editing allowed',
+      'src.face.r2': 'Every face is an AI-generated fictional person; do not impersonate real people',
+      'src.face.r3': 'The author asks that the images themselves not be redistributed or reposted',
+      'src.outfit.title': 'Outfits',
+      'src.outfit.text': 'ギア is building an outfit database; follow its rules once it is released. Until then, use outfit images you have the rights to, or describe the outfit in text.',
+      'src.note': 'Summarised from the original sites. The latest version on each site prevails.',
+
+      'view.title': 'Result',
+      'view.download': 'Download',
+      'view.close': 'Close',
+      'view.alt': 'Generated image',
+
+      'field.apiKey': 'API key',
+      'field.model': 'Model',
+      'err.readImage': 'Could not read the image',
+      'err.cancelled': 'Cancelled',
+      'err.reply': '{service} returned {status}: {detail}',
+      'err.network': 'Could not reach {service}. {hint}',
+      'hint.checkNet': 'Check your connection and make sure the API key is correct.'
+    }
+  });
+})();

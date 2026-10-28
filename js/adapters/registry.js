@@ -1,11 +1,12 @@
 // 模型連接器（adapter）登記處。
-// 每個 adapter 係一個 object：
+// 每個 adapter 是一個物件：
 // {
 //   id, name, kind: 'cloud' | 'local', help,
 //   fields: [{ key, label, type?: 'text'|'password'|'textarea', default?, placeholder? }],
 //   async generate({ prompt, images, aspect, size, settings, signal, onStatus }) => Blob[]
 // }
-// images：[{ role: 'face'|'outfit'|'pose', blob, mime, name }]，次序同 prompt 入面嘅「第 n 張」一致。
+// name、help、label、placeholder 可以是 i18n 字典鍵、普通字串，或 { zh, en } 物件。
+// images：[{ role: 'face'|'outfit'|'pose', blob, mime, name }]，次序與 prompt 中的「第 n 張」一致。
 window.Engine = window.Engine || {};
 
 (function () {
@@ -21,7 +22,7 @@ window.Engine = window.Engine || {};
       return new Promise((resolve, reject) => {
         const r = new FileReader();
         r.onload = () => resolve(String(r.result).split(',')[1]);
-        r.onerror = () => reject(new Error('讀取圖片失敗'));
+        r.onerror = () => reject(new Error(Engine.t('err.readImage')));
         r.readAsDataURL(blob);
       });
     },
@@ -34,10 +35,10 @@ window.Engine = window.Engine || {};
     sleep(ms, signal) {
       return new Promise((resolve, reject) => {
         const t = setTimeout(resolve, ms);
-        if (signal) signal.addEventListener('abort', () => { clearTimeout(t); reject(new DOMException('已取消', 'AbortError')); }, { once: true });
+        if (signal) signal.addEventListener('abort', () => { clearTimeout(t); reject(new DOMException(Engine.t('err.cancelled'), 'AbortError')); }, { once: true });
       });
     },
-    // 將 fetch 錯誤轉成用戶睇得明嘅訊息
+    // 將 fetch 錯誤轉為用戶看得懂的訊息
     async errorFrom(res, service) {
       let detail = '';
       try {
@@ -46,10 +47,10 @@ window.Engine = window.Engine || {};
       } catch (e) {
         try { detail = await res.text(); } catch (e2) { /* ignore */ }
       }
-      return new Error(`${service} 回覆 ${res.status}：${String(detail).slice(0, 300)}`);
+      return new Error(Engine.t('err.reply', { service, status: res.status, detail: String(detail).slice(0, 300) }));
     },
     networkHint(service, hint) {
-      return new Error(`連唔到 ${service}。${hint}`);
+      return new Error(Engine.t('err.network', { service, hint }));
     }
   };
 })();

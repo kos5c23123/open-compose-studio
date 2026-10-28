@@ -1,5 +1,5 @@
-// 將揀咗嘅參考圖 + 場景選項砌成一句指令。
-// refs：按送去模型嘅次序排好，例如 [{role:'face'}, {role:'outfit'}, {role:'pose'}]
+// 將已選的參考圖及場景選項組合成一段指令。
+// refs：按傳送給模型的次序排列，例如 [{role:'face'}, {role:'outfit'}, {role:'pose'}]
 window.Engine = window.Engine || {};
 
 (function () {
@@ -57,7 +57,7 @@ window.Engine = window.Engine || {};
     }
   };
 
-  // 由 opts（{groupId: [optionId]}）攞返對應語言嘅字眼
+  // 由 opts（{groupId: [optionId]}）取得對應語言的字詞
   function terms(groupId, opts, lang) {
     const group = Engine.presets.find((g) => g.id === groupId);
     if (!group) return [];
@@ -109,7 +109,7 @@ window.Engine = window.Engine || {};
     return lines.join('\n');
   };
 
-  // 由比例計出約 1MP、64 倍數嘅闊高，俾本地模型用
+  // 由畫面比例計算約 1MP、64 倍數的寬高，供本地模型使用
   Engine.sizeFor = function (aspect, area = 1024 * 1024) {
     const [a, b] = String(aspect || '1:1').split(':').map(Number);
     const ratio = a && b ? a / b : 1;

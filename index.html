@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>合成棚：人物 + 服裝 + 姿勢 一鍵出圖</title>
+<title>合成棚：人物 + 服裝 + 姿勢 一鍵生成</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700;900&display=swap" rel="stylesheet">
@@ -29,7 +29,7 @@
   --shadow: 0 1px 2px rgb(20 18 14 / 0.05), 0 10px 28px -14px rgb(20 18 14 / 0.18);
   --shadow-lift: 0 2px 4px rgb(20 18 14 / 0.06), 0 18px 34px -16px rgb(20 18 14 / 0.32);
 
-  /* 舞台：淺色同深色模式都係暗棚 */
+  /* 舞台：淺色及深色模式均為暗色攝影棚 */
   --stage: #0e1014;
   --stage-2: #161920;
   --stage-3: #20242c;
@@ -89,7 +89,7 @@ body {
     radial-gradient(900px 520px at -8% 6%, color-mix(in srgb, var(--tungsten) 12%, transparent), transparent 70%),
     var(--bg);
 }
-/* 界刀板咁嘅底格 */
+/* 類似切割墊的底格 */
 body::before {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
@@ -136,7 +136,21 @@ header.top {
   margin: 0; font-size: 12.5px; line-height: 1; color: var(--muted); white-space: nowrap;
   padding-left: 10px; border-left: 1px solid var(--line-strong);
 }
-.top-actions { display: flex; gap: 6px; }
+.top-actions { display: flex; align-items: center; gap: 6px; }
+.lang-switch {
+  display: inline-flex; padding: 3px; margin-right: 4px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.lang-switch button {
+  min-width: 34px; padding: 4px 10px; border: 0; border-radius: 999px; background: transparent;
+  color: var(--muted); font: 600 12px/1.2 var(--grotesk); letter-spacing: 0.04em;
+  transition: background-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.lang-switch button:hover { color: var(--ink); }
+.lang-switch button[aria-pressed="true"] { background: var(--raised); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
+/* 英文介面：標籤已是英文，隱藏重複的英文小字 */
+html[lang="en"] .slot-label .en,
+html[lang="en"] .dlg-body > h3 .kicker { display: none; }
 
 /* ---------- 按鈕 ---------- */
 .btn {
@@ -337,7 +351,7 @@ header.top {
 .status.error { color: #ff9a92; }
 .status.error::before { background: #ff6157; box-shadow: 0 0 10px #ff6157; }
 
-/* 菲林條 */
+/* 底片條 */
 .filmstrip {
   position: relative; margin-top: 16px; padding: 14px 14px;
   border-radius: 10px; background: #07080a; border: 1px solid var(--stage-line);
@@ -590,7 +604,7 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-/* 闊畫面：素材庫跟住捲，格仔喺入面捲 */
+/* 寬螢幕：素材庫固定於畫面，圖片在面板內捲動 */
 @media (min-width: 961px) {
   .lib-panel { position: sticky; top: 16px; display: flex; flex-direction: column; max-height: calc(100dvh - 32px); }
   .lib-panel #library { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin: 0 -20px -20px; padding: 0 20px 20px; scrollbar-width: thin; }
@@ -686,20 +700,24 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
         <h1>合成棚</h1>
         <div class="sub">
           <span class="en">COMPOSE STUDIO</span>
-          <p class="tagline">揀人物、服裝、姿勢，一鍵交俾 AI 合成</p>
+          <p class="tagline" data-i18n="brand.tagline">選擇人物、服裝與姿勢，一鍵交由 AI 合成</p>
         </div>
       </div>
     </div>
     <div class="top-actions">
-      <button class="btn ghost" id="openSources" aria-label="素材來源"><svg class="ico" aria-hidden="true"><use href="#i-book"/></svg><span class="btn-label">素材來源</span></button>
-      <button class="btn" id="openSettings" aria-label="設定"><svg class="ico" aria-hidden="true"><use href="#i-sliders"/></svg><span class="btn-label">設定</span></button>
+      <div class="lang-switch" role="group" data-i18n-attr="aria-label:lang.group">
+        <button type="button" data-lang="zh" lang="zh-Hant" aria-label="繁體中文">中</button>
+        <button type="button" data-lang="en" lang="en" aria-label="English">EN</button>
+      </div>
+      <button class="btn ghost" id="openSources" data-i18n-attr="aria-label:top.sources"><svg class="ico" aria-hidden="true"><use href="#i-book"/></svg><span class="btn-label" data-i18n="top.sources">素材來源</span></button>
+      <button class="btn" id="openSettings" data-i18n-attr="aria-label:top.settings"><svg class="ico" aria-hidden="true"><use href="#i-sliders"/></svg><span class="btn-label" data-i18n="top.settings">設定</span></button>
     </div>
   </header>
 
-  <section class="stage" aria-label="合成組合">
+  <section class="stage" data-i18n-attr="aria-label:stage.label">
     <div class="stage-head">
       <div class="stage-title"><span class="rec" aria-hidden="true"></span><span class="kicker">Composition</span></div>
-      <div class="readout" id="readout" aria-label="而家嘅鏡頭設定"></div>
+      <div class="readout" id="readout" data-i18n-attr="aria-label:readout.label"></div>
     </div>
 
     <div class="equation">
@@ -710,18 +728,18 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
       <div class="slot" data-slot="pose"></div>
       <span class="op eq" aria-hidden="true"><svg class="ico"><use href="#i-equals"/></svg></span>
       <div class="slot result">
-        <div class="slot-label"><span class="num">OUT</span><strong>結果</strong><span class="en">RESULT</span></div>
-        <button class="slot-frame" id="resultFrame" aria-label="睇大圖" disabled>
-          <span class="slot-empty"><span class="glyph"><svg class="ico" aria-hidden="true"><use href="#i-aperture"/></svg></span><span>出咗圖會喺呢度</span></span>
+        <div class="slot-label"><span class="num">OUT</span><strong data-i18n="result.title">結果</strong><span class="en">RESULT</span></div>
+        <button class="slot-frame" id="resultFrame" data-i18n-attr="aria-label:result.view" disabled>
+          <span class="slot-empty"><span class="glyph"><svg class="ico" aria-hidden="true"><use href="#i-aperture"/></svg></span><span data-i18n="result.empty">生成的圖片會顯示在這裡</span></span>
         </button>
         <div class="slot-meta"><span class="name" id="resultMeta"></span></div>
       </div>
     </div>
 
     <div class="actionbar">
-      <button class="btn primary go" id="generate" disabled><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg>出圖</button>
-      <button class="btn on-stage" id="cancel" hidden><svg class="ico" aria-hidden="true"><use href="#i-stop"/></svg>取消</button>
-      <button class="engine-pill" id="engineBtn" type="button" aria-label="揀出圖引擎">
+      <button class="btn primary go" id="generate" disabled><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg><span data-i18n="gen.go">生成</span></button>
+      <button class="btn on-stage" id="cancel" hidden><svg class="ico" aria-hidden="true"><use href="#i-stop"/></svg><span data-i18n="gen.cancel">取消</span></button>
+      <button class="engine-pill" id="engineBtn" type="button" data-i18n-attr="aria-label:engine.pick">
         <svg class="ico" aria-hidden="true"><use id="engineIcon" href="#i-cloud"/></svg>
         <span class="lbl">ENGINE</span>
         <span id="engineName"></span>
@@ -729,63 +747,63 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
       </button>
       <span class="status" id="status" role="status" aria-live="polite"></span>
     </div>
-    <div class="filmstrip"><div class="history" id="history" aria-label="之前出過嘅圖"></div></div>
+    <div class="filmstrip"><div class="history" id="history" data-i18n-attr="aria-label:history.label"></div></div>
   </section>
 
   <main class="work">
-    <section class="panel lib-panel" aria-label="素材庫">
+    <section class="panel lib-panel" data-i18n-attr="aria-label:lib.label">
       <header class="panel-head">
-        <div><span class="kicker">Library</span><h2>素材庫</h2></div>
-        <p class="panel-note"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg>圖片只會留喺你部機</p>
+        <div><span class="kicker">Library</span><h2 data-i18n="lib.title">素材庫</h2></div>
+        <p class="panel-note"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg><span data-i18n="lib.local">圖片只會保留在你的裝置上</span></p>
       </header>
       <div class="tabs" role="tablist" id="tabs"></div>
       <div id="library"></div>
     </section>
 
     <aside class="side">
-      <section class="panel" aria-label="場景設定">
+      <section class="panel" data-i18n-attr="aria-label:scene.label">
         <header class="panel-head">
-          <div><span class="kicker">Scene</span><h2>場景設定</h2></div>
+          <div><span class="kicker">Scene</span><h2 data-i18n="scene.title">場景設定</h2></div>
         </header>
         <div id="presets"></div>
 
         <div class="fields">
           <div class="field">
-            <label for="outfitText">服裝描述</label>
-            <span class="hint">冇揀服裝圖時用，例如「白色恤衫配深藍百褶裙」</span>
+            <label for="outfitText" data-i18n="f.outfit">服裝描述</label>
+            <span class="hint" data-i18n="f.outfitHint">未選服裝圖時使用，例如「白色襯衫配深藍色百褶裙」</span>
             <input id="outfitText" type="text">
           </div>
           <div class="field">
-            <label for="hairText">髮型</label>
-            <span class="hint">留空就跟返人物圖</span>
+            <label for="hairText" data-i18n="f.hair">髮型</label>
+            <span class="hint" data-i18n="f.hairHint">留空則沿用人物圖</span>
             <input id="hairText" type="text">
           </div>
-          <label class="check"><input type="checkbox" id="keepHair" checked> 保持人物圖嘅髮型</label>
+          <label class="check"><input type="checkbox" id="keepHair" checked> <span data-i18n="f.keepHair">保持人物圖的髮型</span></label>
           <div class="field">
-            <label for="extraText">補充指示</label>
-            <textarea id="extraText" rows="2" placeholder="例如：手持一杯咖啡，背景有櫻花"></textarea>
+            <label for="extraText" data-i18n="f.extra">補充指示</label>
+            <textarea id="extraText" rows="2" data-i18n-attr="placeholder:f.extraPh" placeholder="例如：手持一杯咖啡，背景有櫻花"></textarea>
           </div>
         </div>
       </section>
 
       <section class="panel" aria-label="Prompt">
         <header class="panel-head">
-          <div><span class="kicker">Prompt</span><h2>指令</h2></div>
-          <select id="lang" class="pill-select" aria-label="Prompt 語言">
-            <option value="en">英文（多數模型最穩定）</option>
-            <option value="ja">日文</option>
-            <option value="zh">中文</option>
+          <div><span class="kicker">Prompt</span><h2 data-i18n="prompt.title">指令</h2></div>
+          <select id="lang" class="pill-select" data-i18n-attr="aria-label:prompt.lang">
+            <option value="en" data-i18n="prompt.lang.en">英文（多數模型最穩定）</option>
+            <option value="ja" data-i18n="prompt.lang.ja">日文</option>
+            <option value="zh" data-i18n="prompt.lang.zh">中文</option>
           </select>
         </header>
         <div class="field prompt-box">
           <label for="prompt" class="sr-only">Prompt</label>
-          <span class="hint">會自動更新；你亦可以直接改，改完就唔會再被覆蓋，直至按「重新生成」。</span>
+          <span class="hint" data-i18n="prompt.hint">會自動更新；你也可以直接修改，修改後不會再被覆蓋，直至按下「重新生成」。</span>
           <textarea id="prompt" spellcheck="false"></textarea>
         </div>
         <div class="prompt-actions">
-          <button class="btn small" id="copyPrompt"><svg class="ico" aria-hidden="true"><use href="#i-copy"/></svg>複製 prompt</button>
-          <button class="btn small" id="resetPrompt"><svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg>重新生成</button>
-          <button class="btn small" id="enhance"><svg class="ico" aria-hidden="true"><use href="#i-wand"/></svg>用本地 LLM 潤飾</button>
+          <button class="btn small" id="copyPrompt"><svg class="ico" aria-hidden="true"><use href="#i-copy"/></svg><span data-i18n="prompt.copy">複製 prompt</span></button>
+          <button class="btn small" id="resetPrompt"><svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg><span data-i18n="prompt.reset">重新生成</span></button>
+          <button class="btn small" id="enhance"><svg class="ico" aria-hidden="true"><use href="#i-wand"/></svg><span data-i18n="prompt.enhance">以本地 LLM 潤飾</span></button>
           <span class="note" id="promptNote"></span>
         </div>
       </section>
@@ -794,7 +812,7 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
 
   <footer class="foot">
     <svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg>
-    <p>合成棚只係工具，唔包含任何素材。所有圖片由你自己喺原站下載後喺本機載入，唔會上載到呢個網站。請遵守各素材嘅使用規則：唔好用嚟表現真人或未成年人，唔好冒充真人，唔好再分發原圖。</p>
+    <p data-i18n="foot">合成棚只是工具，不包含任何素材。所有圖片由你自行從原站下載，並在本機載入，不會上傳到本網站。請遵守各素材的使用規則：不得用於表現真人或未成年人，不得冒充真人，不得再分發原圖。</p>
   </footer>
 </div>
 
@@ -803,86 +821,87 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
 
 <dialog id="settingsDlg" aria-labelledby="settingsTitle">
   <div class="dlg-head">
-    <h2 id="settingsTitle"><svg class="ico" aria-hidden="true"><use href="#i-sliders"/></svg>設定</h2>
-    <button class="btn small" data-close>完成</button>
+    <h2 id="settingsTitle"><svg class="ico" aria-hidden="true"><use href="#i-sliders"/></svg><span data-i18n="set.title">設定</span></h2>
+    <button class="btn small" data-close data-i18n="set.done">完成</button>
   </div>
   <div class="dlg-body">
-    <h3>出圖引擎<span class="kicker">Engine</span></h3>
+    <h3><span data-i18n="set.engine">生成引擎</span><span class="kicker">Engine</span></h3>
     <div class="engines" id="engineList"></div>
     <p class="help" id="engineHelp"></p>
     <div id="engineFields"></div>
-    <h3>本地 LLM（潤飾 prompt，可選）<span class="kicker">Enhancer</span></h3>
-    <p class="help">支援 OpenAI 相容介面，例如 Ollama 或 LM Studio。</p>
+    <h3><span data-i18n="set.enhancer">本地 LLM（潤飾 prompt，可選）</span><span class="kicker">Enhancer</span></h3>
+    <p class="help" data-i18n="set.enhancerHelp">支援 OpenAI 相容介面，例如 Ollama 或 LM Studio。</p>
     <div id="enhancerFields"></div>
-    <h3>私隱<span class="kicker">Privacy</span></h3>
-    <label class="check"><input type="checkbox" id="remember"> 喺呢部機記住設定（包括 API key）</label>
-    <p class="help">設定只會存喺你瀏覽器嘅 localStorage。參考圖只會直接送去你揀嘅引擎。</p>
+    <h3><span data-i18n="set.privacy">私隱</span><span class="kicker">Privacy</span></h3>
+    <label class="check"><input type="checkbox" id="remember"> <span data-i18n="set.remember">在此裝置記住設定（包括 API key）</span></label>
+    <p class="help" data-i18n="set.privacyHelp">設定只會儲存在瀏覽器的 localStorage。參考圖只會直接傳送到你選擇的引擎。</p>
   </div>
 </dialog>
 
 <dialog id="sourcesDlg" aria-labelledby="sourcesTitle">
   <div class="dlg-head">
-    <h2 id="sourcesTitle"><svg class="ico" aria-hidden="true"><use href="#i-book"/></svg>素材來源同使用規則</h2>
-    <button class="btn small" data-close>知道</button>
+    <h2 id="sourcesTitle"><svg class="ico" aria-hidden="true"><use href="#i-book"/></svg><span data-i18n="src.title">素材來源與使用規則</span></h2>
+    <button class="btn small" data-close data-i18n="src.ok">知道了</button>
   </div>
   <div class="dlg-body">
-    <p class="intro">合成棚唔會提供或轉載任何素材。請去以下原站下載，再用「載入資料夾」揀返你下載嘅 folder。</p>
+    <p class="intro" data-i18n="src.intro">合成棚不會提供或轉載任何素材。請到以下原站下載，再以「載入資料夾」選擇你下載的資料夾。</p>
     <article class="source">
       <div class="source-head">
         <span class="source-ico"><svg class="ico" aria-hidden="true"><use href="#i-pose"/></svg></span>
         <div>
-          <h3>姿勢：ポーズ集 POSE-DB-01</h3>
-          <p class="byline">作者：ギア（<a href="https://x.com/giaaibusi" target="_blank" rel="noopener">@giaaibusi</a>）　原站：<a href="https://ai-pose-gallery.pages.dev/" target="_blank" rel="noopener">ai-pose-gallery.pages.dev</a></p>
+          <h3 data-i18n="src.pose.title">姿勢：ポーズ集 POSE-DB-01</h3>
+          <p class="byline"><span data-i18n="src.author">作者</span> ギア · <a href="https://x.com/giaaibusi" target="_blank" rel="noopener">@giaaibusi</a> · <span data-i18n="src.site">原站</span> <a href="https://ai-pose-gallery.pages.dev/" target="_blank" rel="noopener">ai-pose-gallery.pages.dev</a></p>
         </div>
       </div>
       <ul>
-        <li>免費，作品創作可以商用、編輯</li>
-        <li>圖片數據本身（包括加工後）禁止再分發、轉載、轉售</li>
-        <li>唔可以用嚟表現真人或未成年人，唔可以用喺違反公序良俗嘅用途</li>
+        <li data-i18n="src.pose.r1">免費，創作的作品可作商業用途，亦可編輯</li>
+        <li data-i18n="src.pose.r2">圖片數據本身（包括加工後的版本）禁止再分發、轉載或轉售</li>
+        <li data-i18n="src.pose.r3">不得用於表現真人或未成年人，亦不得用於違反公序良俗的用途</li>
       </ul>
     </article>
     <article class="source">
       <div class="source-head">
         <span class="source-ico"><svg class="ico" aria-hidden="true"><use href="#i-face"/></svg></span>
         <div>
-          <h3>人物：AIモデル顔データベース</h3>
-          <p class="byline">作者：あぎ（<a href="https://x.com/agi_aibusi" target="_blank" rel="noopener">@agi_aibusi</a>）　原站：<a href="https://ai-portrait-gallery.pages.dev/" target="_blank" rel="noopener">ai-portrait-gallery.pages.dev</a></p>
+          <h3 data-i18n="src.face.title">人物：AIモデル顔データベース</h3>
+          <p class="byline"><span data-i18n="src.author">作者</span> あぎ · <a href="https://x.com/agi_aibusi" target="_blank" rel="noopener">@agi_aibusi</a> · <span data-i18n="src.site">原站</span> <a href="https://ai-portrait-gallery.pages.dev/" target="_blank" rel="noopener">ai-portrait-gallery.pages.dev</a></p>
         </div>
       </div>
       <ul>
-        <li>CC0，可以商用、編輯</li>
-        <li>全部係 AI 生成嘅虛構人物；唔可以冒充真人</li>
-        <li>作者請求唔好再分發或轉載圖片本身</li>
+        <li data-i18n="src.face.r1">CC0，可作商業用途，亦可編輯</li>
+        <li data-i18n="src.face.r2">全部為 AI 生成的虛構人物；不得冒充真人</li>
+        <li data-i18n="src.face.r3">作者請求不要再分發或轉載圖片本身</li>
       </ul>
     </article>
     <article class="source">
       <div class="source-head">
         <span class="source-ico"><svg class="ico" aria-hidden="true"><use href="#i-outfit"/></svg></span>
         <div>
-          <h3>服裝</h3>
-          <p class="byline">ギア 話緊整服裝資料庫，公開後請跟返佢嘅規則。暫時可以用你自己有權使用嘅服裝圖，或者直接用文字描述。</p>
+          <h3 data-i18n="src.outfit.title">服裝</h3>
+          <p class="byline" data-i18n="src.outfit.text">ギア 正在製作服裝資料庫，公開後請遵守其規則。目前可使用你有權使用的服裝圖，或直接以文字描述。</p>
         </div>
       </div>
     </article>
-    <p class="help">以上規則係整理自原站，以原站最新版本為準。</p>
+    <p class="help" data-i18n="src.note">以上規則整理自原站，一切以原站最新版本為準。</p>
   </div>
 </dialog>
 
 <dialog id="viewerDlg" class="viewer" aria-labelledby="viewerTitle">
   <div class="dlg-head">
-    <h2 id="viewerTitle"><svg class="ico" aria-hidden="true"><use href="#i-aperture"/></svg>結果</h2>
+    <h2 id="viewerTitle"><svg class="ico" aria-hidden="true"><use href="#i-aperture"/></svg><span data-i18n="view.title">結果</span></h2>
     <div class="dlg-actions">
-      <a class="btn small primary" id="viewerDownload" download><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>下載</a>
-      <button class="btn small" id="viewerCopy"><svg class="ico" aria-hidden="true"><use href="#i-copy"/></svg>複製 prompt</button>
-      <button class="btn small" data-close><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg>關閉</button>
+      <a class="btn small primary" id="viewerDownload" download><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg><span data-i18n="view.download">下載</span></a>
+      <button class="btn small" id="viewerCopy"><svg class="ico" aria-hidden="true"><use href="#i-copy"/></svg><span data-i18n="prompt.copy">複製 prompt</span></button>
+      <button class="btn small" data-close><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg><span data-i18n="view.close">關閉</span></button>
     </div>
   </div>
   <div class="dlg-body">
-    <div class="viewer-img"><img id="viewerImg" alt="生成結果"></div>
+    <div class="viewer-img"><img id="viewerImg" data-i18n-attr="alt:view.alt" alt="生成結果"></div>
     <pre id="viewerPrompt"></pre>
   </div>
 </dialog>
 
+<script src="js/i18n.js"></script>
 <script src="js/presets.js"></script>
 <script src="js/prompt.js"></script>
 <script src="js/adapters/registry.js"></script>
