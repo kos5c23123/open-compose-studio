@@ -12,7 +12,7 @@ The interface is available in Traditional Chinese and English. Use the 中 / EN 
 2. Open `index.html` directly in Chrome, Edge or Firefox. No server or build step is needed.
 3. Download materials from the sites listed below and put each type in its own folder. In the app, choose **Load folder**.
 4. Open **Settings**, pick an image engine and enter your API key or local address.
-5. Choose a face, an outfit and a pose, set the scene options, then press **Generate**.
+5. Choose a face, an outfit and a pose. Pick a **quick look** (such as Studio portrait or Cinematic night) or fine-tune the scene in the Framing, Lens, Light, Setting and Subject tabs, then press **Generate**. Click any reading on the stage (for example `LENS 85mm`) to jump to that setting. When you scroll down, a floating bar keeps your picks and the Generate button in reach.
 
 An outfit image is optional; you can describe the outfit in text instead. If you would rather not connect an API, press **Copy prompt** and paste it, together with the reference images, into the ChatGPT or Gemini web app.
 

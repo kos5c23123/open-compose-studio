@@ -63,6 +63,7 @@
     prefs: {
       engine: 'gemini',
       uiLang: null,
+      sceneTab: 'framing',
       lang: 'en',
       keepHair: true,
       remember: false,
@@ -129,7 +130,7 @@
     renderTabs();
     renderLibrary();
     renderSlots();
-    renderPresets();
+    renderScene();
     renderReadout();
     renderEngineName();
     renderResult();
@@ -144,6 +145,7 @@
     const s = $('#status');
     s.textContent = msg || '';
     s.classList.toggle('error', !!isError);
+    renderDock();
   }
 
   // ---------- 素材庫 ----------
@@ -655,18 +657,99 @@
   }
 
   // ---------- 場景選項 ----------
+  const tabName = (tab) => (I.lang === 'en' ? tab.en : tab.zh);
+  const tabOf = (groupId) => E.sceneTabs.find((tab) => tab.groups.includes(groupId)) || E.sceneTabs[0];
+  const currentTab = () => E.sceneTabs.find((tab) => tab.id === state.prefs.sceneTab) || E.sceneTabs[0];
+
+  function renderScene(animate) {
+    renderLooks();
+    renderSceneTabs();
+    renderPresets();
+    if (animate) {
+      const body = $('#sceneBody');
+      body.classList.remove('enter');
+      void body.offsetWidth;
+      body.classList.add('enter');
+    }
+  }
+  function renderSceneTabs() {
+    const cur = currentTab();
+    $('#sceneTabs').replaceChildren(...E.sceneTabs.map((tab) => {
+      const n = tab.groups.reduce((sum, id) => sum + (state.prefs.opts[id] || []).length, 0)
+        + (tab.fields ? ['#outfitText', '#hairText', '#extraText'].filter((id) => $(id).value.trim()).length : 0);
+      return el('button', {
+        type: 'button', class: 'stab', role: 'tab', 'aria-selected': String(tab === cur),
+        onclick: () => { if (state.prefs.sceneTab !== tab.id) { state.prefs.sceneTab = tab.id; savePrefs(); renderScene(true); } }
+      }, icon(tab.icon), tabName(tab), el('span', { class: 'dot', text: n || '' }));
+    }));
+  }
   function renderPresets() {
+    const tab = currentTab();
     const box = $('#presets');
-    box.replaceChildren(...E.presets.map((g, i) => {
+    box.replaceChildren(...tab.groups.map((id) => E.presets.find((g) => g.id === id)).filter(Boolean).map((g) => {
       const chosen = state.prefs.opts[g.id] || [];
-      return el('div', { class: 'group' },
-        el('h3', {}, el('span', { class: 'gi', text: String(i + 1).padStart(2, '0') }), groupName(g), g.max > 1 ? el('small', { text: t('scene.max', { n: g.max }) }) : null),
+      return el('div', { class: 'group', 'data-group': g.id },
+        el('h3', {}, groupName(g), g.max > 1 ? el('small', { text: t('scene.max', { n: g.max }) }) : null),
         el('div', { class: 'chips' }, ...g.options.map((o) => el('button', {
           class: 'chip', 'aria-pressed': String(chosen.includes(o.id)), title: o.en,
           onclick: () => toggleOpt(g, o.id)
         }, g.id === 'aspect' ? el('span', { class: 'ratio', style: `aspect-ratio:${o.id.replace(':', '/')}` }) : null, optionName(o)))));
     }));
+    $('#subjectFields').hidden = !tab.fields;
   }
+
+  // 快速風格
+  const sameList = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
+  const lookMatches = (look) => E.presets.every((g) => sameList(state.prefs.opts[g.id] || [], look.opts[g.id] || []));
+  function lookSummary(look) {
+    return ['aspect', 'lens', 'aperture'].map((id) => {
+      const g = E.presets.find((x) => x.id === id);
+      const o = g && g.options.find((x) => x.id === (look.opts[id] || [])[0]);
+      return o ? o.zh.split(' ')[0] : '';
+    }).filter(Boolean).join(' · ');
+  }
+  function renderLooks() {
+    $('#looks').replaceChildren(...E.looks.map((look) => {
+      const [a, b, c] = look.g;
+      return el('button', {
+        type: 'button', class: 'look', 'aria-pressed': String(lookMatches(look)),
+        style: `--sw: radial-gradient(120% 90% at 15% 0%, ${a}, transparent 62%), linear-gradient(135deg, ${a}, ${b} 55%, ${c})`,
+        onclick: () => applyLook(look)
+      }, el('strong', { text: I.lang === 'en' ? look.en : look.zh }), el('small', { text: lookSummary(look) }));
+    }));
+  }
+  function applyLook(look) {
+    const opts = {};
+    for (const g of E.presets) opts[g.id] = (look.opts[g.id] || (g.required ? g.default : []) || []).slice();
+    state.prefs.opts = opts;
+    savePrefs();
+    renderScene();
+    renderReadout();
+    updatePrompt();
+  }
+  function resetScene() {
+    const opts = {};
+    for (const g of E.presets) opts[g.id] = g.default ? g.default.slice() : [];
+    state.prefs.opts = opts;
+    savePrefs();
+    renderScene();
+    renderReadout();
+    updatePrompt();
+  }
+
+  // 點擊舞台上的讀數，跳到對應的設定
+  function jumpToGroup(id) {
+    state.prefs.sceneTab = tabOf(id).id;
+    savePrefs();
+    renderScene(true);
+    const node = document.querySelector(`#presets [data-group="${id}"]`);
+    if (!node) return;
+    node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    node.classList.remove('flash');
+    void node.offsetWidth;
+    node.classList.add('flash');
+  }
+
   function renderReadout() {
     const parts = [];
     for (const [id, tag] of READOUT) {
@@ -675,7 +758,8 @@
       const first = group && group.options.find((o) => o.id === ids[0]);
       if (!first) continue;
       const name = optionName(first);
-      parts.push(el('span', {}, el('b', { text: tag }), ids.length > 1 ? `${name} +${ids.length - 1}` : name));
+      parts.push(el('button', { type: 'button', title: groupName(group), onclick: () => jumpToGroup(id) },
+        el('b', { text: tag }), ids.length > 1 ? `${name} +${ids.length - 1}` : name));
     }
     $('#readout').replaceChildren(...parts);
   }
@@ -692,9 +776,35 @@
     }
     state.prefs.opts[g.id] = cur;
     savePrefs();
-    renderPresets();
+    renderScene();
     renderReadout();
     updatePrompt();
+  }
+
+  // ---------- 浮動生成列 ----------
+  // 合成區捲出畫面時，在底部顯示已選素材及「生成」按鈕
+  function renderDock() {
+    const dock = $('#dock');
+    if (!dock) return;
+    $('#dockSlots').replaceChildren(...SLOTS.map((s) => {
+      const item = state.selected[s.id];
+      return el('button', {
+        type: 'button', class: 'dock-slot', title: slotLabel(s.id),
+        'aria-label': t('slot.aria', { label: slotLabel(s.id), name: item ? displayName(item) : t('slot.none') }),
+        onclick: () => { setTab(s.id); document.querySelector('.lib-panel').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      }, item ? el('img', { src: fullUrl(item), alt: '' }) : icon(s.id));
+    }));
+    $('#dockStatus').textContent = $('#status').textContent;
+    $('#dockGo').disabled = $('#generate').disabled;
+    dock.classList.toggle('busy', !!state.abort);
+  }
+  function watchDock() {
+    if (!('IntersectionObserver' in window)) return;
+    new IntersectionObserver((entries) => {
+      const e = entries[0];
+      $('#dock').hidden = e.isIntersecting && e.intersectionRatio > 0.6;
+      if (!$('#dock').hidden) renderDock();
+    }, { threshold: [0, 0.6, 1] }).observe($('.actionbar'));
   }
 
   // ---------- Prompt ----------
@@ -727,6 +837,16 @@
   function updateGenerateButton() {
     const hasPrompt = $('#prompt').value.trim().length > 0;
     $('#generate').disabled = !!state.abort || !hasPrompt || orderedRefs().length === 0;
+    renderPeek();
+    renderDock();
+  }
+  // Prompt 收起時顯示的摘要
+  function renderPeek() {
+    const lines = $('#prompt').value.split('\n').filter((x) => x.trim()).length;
+    const lang = { en: 'EN', ja: 'JA', zh: 'ZH' }[state.prefs.lang] || '';
+    $('#promptPeek').replaceChildren(
+      state.promptEdited ? el('span', { class: 'edited', text: t('prompt.editedTag') }) : '',
+      `${lang} · ${t('prompt.lines', { n: lines })}`);
   }
 
   // ---------- 生成 ----------
@@ -891,10 +1011,11 @@
     renderTabs();
     renderLibrary();
     renderSlots();
-    renderPresets();
+    renderScene();
     renderReadout();
     renderEngineName();
     updatePrompt(true);
+    watchDock();
 
     document.querySelectorAll('.lang-switch [data-lang]').forEach((b) => {
       b.addEventListener('click', () => { if (b.dataset.lang !== I.lang) setUiLang(b.dataset.lang); });
@@ -926,7 +1047,9 @@
     $('#resetPrompt').addEventListener('click', () => updatePrompt(true));
     $('#enhance').addEventListener('click', enhance);
     $('#prompt').addEventListener('input', () => { state.promptEdited = true; $('#promptNote').textContent = t('note.edited'); updateGenerateButton(); });
-    for (const id of ['#outfitText', '#hairText', '#extraText']) $(id).addEventListener('input', () => updatePrompt());
+    for (const id of ['#outfitText', '#hairText', '#extraText']) $(id).addEventListener('input', () => { updatePrompt(); renderSceneTabs(); });
+    $('#resetScene').addEventListener('click', resetScene);
+    $('#dockGo').addEventListener('click', generate);
     $('#keepHair').addEventListener('change', (e) => { state.prefs.keepHair = e.target.checked; savePrefs(); updatePrompt(); });
     $('#lang').addEventListener('change', (e) => { state.prefs.lang = e.target.value; savePrefs(); updatePrompt(true); });
     $('#remember').addEventListener('change', (e) => { state.prefs.remember = e.target.checked; savePrefs(); });

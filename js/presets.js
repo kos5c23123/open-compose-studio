@@ -140,3 +140,41 @@ Engine.presets = [
     ]
   }
 ];
+
+// 場景設定的分頁：每頁顯示哪些選項組。'fields' 代表服裝、髮型等文字欄位。
+Engine.sceneTabs = [
+  { id: 'framing', icon: 'frame', zh: '構圖', en: 'Framing', groups: ['aspect', 'shot', 'angle'] },
+  { id: 'lens', icon: 'aperture', zh: '鏡頭', en: 'Lens', groups: ['lens', 'aperture'] },
+  { id: 'light', icon: 'sun', zh: '光線', en: 'Light', groups: ['light', 'weather'] },
+  { id: 'setting', icon: 'mountain', zh: '場景', en: 'Setting', groups: ['place', 'style'] },
+  { id: 'subject', icon: 'face', zh: '人物', en: 'Subject', groups: ['expression'], fields: true }
+];
+
+// 快速風格：一鍵套用整組場景選項。未列出的選項組會清空。
+// g 是預覽色塊的漸層顏色。
+Engine.looks = [
+  {
+    id: 'studio', zh: '棚拍人像', en: 'Studio portrait', g: ['#f1ece4', '#b9c0cf', '#7c8496'],
+    opts: { aspect: ['3:4'], shot: ['ms'], angle: ['eye'], lens: ['85'], aperture: ['f28'], light: ['studio', 'soft'], place: ['studio'], expression: ['smile'], style: ['photo'] }
+  },
+  {
+    id: 'street', zh: '街頭時裝', en: 'Street fashion', g: ['#ffd39a', '#e0865a', '#3a3f5c'],
+    opts: { aspect: ['2:3'], shot: ['full'], angle: ['low'], lens: ['35'], aperture: ['f28'], light: ['golden'], weather: ['sunny'], place: ['street'], expression: ['confident'], style: ['editorial'] }
+  },
+  {
+    id: 'night', zh: '電影夜景', en: 'Cinematic night', g: ['#ff4fa3', '#5b3cff', '#0c1030'],
+    opts: { aspect: ['16:9'], shot: ['cowboy'], angle: ['eye'], lens: ['50'], aperture: ['f14'], light: ['neon', 'cine'], weather: ['drizzle'], place: ['rooftop'], expression: ['serious'], style: ['film'] }
+  },
+  {
+    id: 'cafe', zh: '午後咖啡店', en: 'Afternoon café', g: ['#f6e3c4', '#c79a6b', '#5d4433'],
+    opts: { aspect: ['4:3'], shot: ['ms'], angle: ['tq'], lens: ['50'], aperture: ['f14'], light: ['window', 'soft'], place: ['cafe'], expression: ['smile'], style: ['film'] }
+  },
+  {
+    id: 'beach', zh: '海邊黃昏', en: 'Beach sunset', g: ['#ffc37a', '#ff7a6b', '#4a5fa8'],
+    opts: { aspect: ['9:16'], shot: ['full'], angle: ['eye'], lens: ['85'], aperture: ['f28'], light: ['golden', 'rim'], weather: ['sunny'], place: ['beach'], expression: ['laugh'], style: ['photo'] }
+  },
+  {
+    id: 'anime', zh: '動漫插畫', en: 'Anime', g: ['#ffd1e8', '#a9c7ff', '#7b6cff'],
+    opts: { aspect: ['3:4'], shot: ['cowboy'], angle: ['eye'], light: ['soft'], weather: ['sunny'], place: ['oldtown'], expression: ['smile'], style: ['anime'] }
+  }
+];
