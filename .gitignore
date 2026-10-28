@@ -1,0 +1,11 @@
+# 素材唔好 commit：原站禁止或請求唔好再分發
+faces/
+poses/
+outfits/
+materials/
+*.png
+*.jpg
+*.jpeg
+*.webp
+!docs/**
+.DS_Store
