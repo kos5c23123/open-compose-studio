@@ -134,6 +134,7 @@
     renderEngineName();
     renderResult();
     if ($('#settingsDlg').open) renderSettings();
+    E.organizer.refresh();
     $('#promptNote').textContent = state.promptEdited ? t('note.edited') : '';
     setStatus('');
   }
@@ -165,6 +166,13 @@
       else setStatus(t('status.noImages'), true);
       return;
     }
+    const added = addItems(slot, files);
+    setStatus([t('status.loaded', { n: added, label: slotLabel(slot) }), ...metaMsgs].join(' '));
+    renderTabs();
+    renderLibrary();
+  }
+
+  function addItems(slot, files) {
     const lib = state.libs[slot];
     const seen = new Set(lib.map((i) => i.id));
     let added = 0;
@@ -181,16 +189,34 @@
     }
     lib.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
     state.page[slot] = 1;
-    setStatus([t('status.loaded', { n: added, label: slotLabel(slot) }), ...metaMsgs].join(' '));
+    return added;
+  }
+
+  // 由「整理素材」套用：移除原本的圖片，加入改名後的圖片
+  function applyOrganized(slot, files, replaceIds) {
+    const drop = new Set(replaceIds);
+    state.libs[slot] = state.libs[slot].filter((item) => {
+      if (!drop.has(item.id)) return true;
+      if (item.url) URL.revokeObjectURL(item.url);
+      if (item.thumb && item.thumb !== item.url) URL.revokeObjectURL(item.thumb);
+      return false;
+    });
+    if (state.selected[slot] && drop.has(state.selected[slot].id)) state.selected[slot] = null;
+    addItems(slot, files);
+    state.tab = slot;
     renderTabs();
     renderLibrary();
+    renderSlots();
+    updatePrompt();
   }
+  // 檔名不符合規律、未能分類的圖片
+  const unsorted = (slot) => state.libs[slot].filter((i) => !(i.info && i.info.kind === slot));
 
   async function importMetaFile(file) {
     try { return C.importText(await file.text()); } catch (e) { return null; }
   }
   function metaStatus(res) {
-    return t(res.kind === 'pose' ? 'status.metaPose' : 'status.metaFace', { n: res.n });
+    return t({ pose: 'status.metaPose', face: 'status.metaFace', own: 'status.metaOwn' }[res.kind], { n: res.n });
   }
 
   function clearLibrary(slot) {
@@ -394,7 +420,8 @@
         desc,
         el('div', { class: 'actions' },
           el('button', { class: 'btn primary', onclick: () => pickFolder(slot) }, icon('folder'), t('lib.loadFolder')),
-          el('button', { class: 'btn', onclick: () => pickFiles(slot) }, icon('images'), t('lib.pickFiles')))));
+          el('button', { class: 'btn', onclick: () => pickFiles(slot) }, icon('images'), t('lib.pickFiles')),
+          slot !== 'outfit' ? el('button', { class: 'btn', onclick: () => E.organizer.open(slot) }, icon('edit'), t('org.openOwn')) : null)));
       return;
     }
 
@@ -406,6 +433,7 @@
     const toolbar = el('div', { class: 'toolbar' },
       el('label', { class: 'search' }, icon('search'), search),
       el('button', { class: 'btn small', onclick: () => pickFolder(slot) }, icon('folder-plus'), t('lib.addFolder')),
+      slot !== 'outfit' ? el('button', { class: 'btn small', onclick: () => E.organizer.open(slot) }, icon('edit'), t('org.open')) : null,
       slot !== 'outfit' ? el('button', { class: 'btn small', onclick: openMeta }, icon('tag'), t('lib.meta')) : null,
       el('button', { class: 'btn small ghost', onclick: () => clearLibrary(slot) }, icon('trash'), t('lib.clear')));
 
@@ -464,7 +492,11 @@
     const countLine = el('div', { class: 'shown', id: 'shownCount' });
     const grid = el('div', { class: 'grid', id: 'grid' });
     const more = el('div', { class: 'more', id: 'more' });
-    box.replaceChildren(el('div', { class: 'lib-head' }, toolbar, rows.length ? facets : null, countLine), grid, more);
+    const loose = slot !== 'outfit' ? unsorted(slot) : [];
+    const banner = loose.length ? el('div', { class: 'banner' }, icon('tag'),
+      el('span', { text: t('org.unrecognized', { n: loose.length }) }),
+      el('button', { class: 'btn small', onclick: () => E.organizer.open(slot, unsorted(slot)) }, t('org.fix'))) : null;
+    box.replaceChildren(el('div', { class: 'lib-head' }, toolbar, banner, rows.length ? facets : null, countLine), grid, more);
     redrawGrid = renderGrid;
     renderGrid();
 
@@ -850,6 +882,7 @@
   // ---------- 啟動 ----------
   function init() {
     loadPrefs();
+    E.organizer.init({ el, icon, t, thumbImg, setStatus, libraryItems: (slot) => state.libs[slot], apply: applyOrganized });
     I.set(state.prefs.uiLang || I.detect());
     applyStatic();
     $('#lang').value = state.prefs.lang;

@@ -46,6 +46,24 @@ This summary is taken from the original sites. The latest version on each site p
 
 **Do not commit materials to this repository.** `.gitignore` already excludes the `faces/`, `poses/`, `outfits/` and `materials/` folders and all image files, so those folders are a safe place to keep your downloads.
 
+## Organizing your own materials
+
+If you make your own pose or face images, **Organize** gives them file names that follow the same scheme, so they get the same categories, filters and pose cards as the downloaded materials.
+
+1. Open **Organize** from the Face or Pose library (or press **Organize them** on the notice that lists images with unrecognised names). Add images with the button or by dragging them in.
+2. Select one or more images (hold Shift to select a range) and set their details:
+   - Poses: series code, pose number and angle (front, high, low, side, three-quarter, back; keys 1–6 also work), plus an optional series name, category and pose name. **Make one pose** gives the selected images one number and assigns the angles in order.
+   - Faces: face or styling, hairstyle length, and a name code.
+3. The new file name appears under each image. Clashing names are highlighted and must be fixed first.
+4. Press **Add to library** to use them now, or **Export ZIP** to download the renamed images with a `catalog.json`. Loading that folder later restores the categories and names.
+
+| Type | File name | Example |
+|---|---|---|
+| Pose | `{series}_P{number}_{angle}` | `my-standing_P001_front.png` |
+| Face | `{face or styling}_{short, medium, semilong, long or other}_{code}` | `face_short_001.png` |
+
+Use your own series codes rather than the original site's (`full_single` and so on) so your images never clash with downloaded ones. Only file names and catalog data change; the image content is not modified. Use only AI-generated images of fictional adults.
+
 ## Image engines
 
 | Engine | Requires | Notes |
@@ -86,6 +104,8 @@ Any OpenAI-compatible endpoint works, including Ollama (`http://127.0.0.1:11434/
 index.html              Markup, styles and the SVG icon sprite
 js/i18n.js              Interface strings (Traditional Chinese, English) and translation helpers
 js/catalog.js           File-name parsing and optional catalog import for categories
+js/organizer.js         Organize dialog for naming your own materials
+js/zip.js               Minimal ZIP writer used by the export
 js/presets.js           Scene options (edit this file to add options)
 js/prompt.js            Prompt builder (English, Japanese, Chinese)
 js/adapters/registry.js Engine registry and shared helpers

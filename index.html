@@ -178,7 +178,10 @@ html[lang="en"] .dlg-body > h3 .kicker { display: none; }
   transform: translateX(-110%); transition: transform 0.7s ease;
 }
 .btn.primary:hover:not(:disabled)::after { transform: translateX(110%); }
-.btn.primary:disabled { cursor: not-allowed; }
+.btn:disabled { cursor: not-allowed; }
+.btn:disabled:not(.go) { opacity: 0.45; }
+.btn:disabled:hover { border-color: var(--line-strong); }
+.btn.primary:disabled::after { display: none; }
 
 /* ---------- 舞台：人物 + 服裝 + 姿勢 = 結果 ---------- */
 .stage {
@@ -499,6 +502,76 @@ select { appearance: none; -webkit-appearance: none; }
 .pstrip span { font-size: 9.5px; line-height: 1.7; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pstrip button.on { border-color: var(--line-strong); color: var(--ink); }
 .pstrip button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+.banner {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--tungsten) 45%, var(--line)); border-radius: 12px;
+  background: color-mix(in srgb, var(--tungsten) 10%, var(--surface)); font-size: 13px;
+}
+.banner .ico { font-size: 16px; color: color-mix(in srgb, var(--tungsten) 70%, var(--ink)); }
+.banner span { flex: 1 1 200px; }
+
+/* 整理素材 */
+dialog.org { width: min(1120px, calc(100vw - 24px)); }
+dialog.org.dragging { outline: 2px dashed var(--accent); outline-offset: -8px; }
+.org-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+.org-tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px; }
+.org-tools .shown { margin-left: auto; font: 500 11.5px/1 var(--mono); color: var(--muted); }
+.org-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
+.org-drop {
+  grid-column: 1 / -1; display: grid; place-items: center; gap: 10px; padding: 48px 16px; text-align: center;
+  border: 1.5px dashed var(--line-strong); border-radius: 16px; color: var(--muted);
+}
+.org-drop .ico { font-size: 28px; color: var(--accent); }
+.org-drop p { margin: 0; font-size: 14px; }
+.org-card {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 0 0 8px; text-align: left;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--raised); overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.org-card:hover { border-color: var(--line-strong); }
+.org-card[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.org-card.bad { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger); }
+.org-thumb { position: relative; display: block; aspect-ratio: 3 / 4; background: var(--surface-2); }
+.org-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.org-thumb .tag {
+  position: absolute; left: 6px; top: 6px; max-width: calc(100% - 12px); padding: 3px 7px; border-radius: 999px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 500 10px/1.2 var(--mono); color: #fff; background: rgb(10 12 16 / 0.62);
+}
+.org-card[aria-pressed="true"] .org-thumb::after {
+  content: ""; position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; border-radius: 50%;
+  background: #3552ff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7'/%3E%3C/svg%3E") center / 12px no-repeat;
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.85);
+}
+.org-name { padding: 0 8px; font: 500 10.5px/1.35 var(--mono); color: var(--muted); word-break: break-all; }
+.org-card.bad .org-name { color: var(--danger); }
+.org-form {
+  position: sticky; top: 72px; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-2);
+}
+.org-form .field input { background: var(--raised); }
+.org-form .flabel { font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
+.org-form .seg { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); background: var(--raised); }
+.org-form-head { margin: 0 0 12px; font-weight: 700; font-size: 14px; }
+.org-empty { margin: 0; }
+.org-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.org-rule {
+  margin: 12px 0 0; padding: 10px 12px; border-radius: 10px; font-size: 12.5px;
+  background: color-mix(in srgb, var(--danger) 9%, transparent); color: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+}
+.org-foot {
+  position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 12px 20px; border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
+.org-warn { flex: 1 1 200px; margin: 0; font-size: 13px; color: var(--muted); }
+.org-warn.error { color: var(--danger); }
+@media (max-width: 760px) {
+  .org-layout { grid-template-columns: 1fr; }
+  .org-form { position: static; }
+  .org-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+}
 .meta-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px; }
 .meta-info { margin: 0; font-family: var(--mono); font-size: 12px; }
 #metaNote:empty { display: none; }
@@ -764,6 +837,7 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
   <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
   <symbol id="i-arrow-out" viewBox="0 0 24 24"><path d="M8 16 16.5 7.5M9 7h8v8"/></symbol>
   <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3.5 12.2V5a1.5 1.5 0 0 1 1.5-1.5h7.2a1.5 1.5 0 0 1 1 .44l7.4 7.4a1.5 1.5 0 0 1 0 2.12l-7.2 7.2a1.5 1.5 0 0 1-2.12 0l-7.4-7.4a1.5 1.5 0 0 1-.38-1.06Z"/><circle cx="8.5" cy="8.5" r="1.5"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L18.6 9.4a2.1 2.1 0 0 0-3-3L5 17v3Z"/><path d="m13.6 7.4 3 3"/><path d="M13 20h7"/></symbol>
   <symbol id="i-text" viewBox="0 0 24 24"><path d="M4.5 6.5h15M4.5 12h15M4.5 17.5h9"/></symbol>
 </svg>
 
@@ -900,6 +974,7 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
 
 <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
 <input type="file" id="filesInput" accept="image/png,image/jpeg,image/webp" multiple hidden>
+<input type="file" id="orgInput" accept="image/png,image/jpeg,image/webp" multiple hidden>
 <input type="file" id="metaInput" accept=".html,.htm,.js,.json,text/html,text/javascript,application/json" multiple hidden>
 
 <dialog id="settingsDlg" aria-labelledby="settingsTitle">
@@ -969,6 +1044,37 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
   </div>
 </dialog>
 
+<dialog id="orgDlg" class="org" aria-labelledby="orgTitle">
+  <div class="dlg-head">
+    <h2 id="orgTitle"><svg class="ico" aria-hidden="true"><use href="#i-edit"/></svg><span data-i18n="org.title">整理素材</span></h2>
+    <div class="dlg-actions">
+      <div class="seg" id="orgKind" role="group" data-i18n-attr="aria-label:org.kind"></div>
+      <button class="btn small" data-close data-i18n="set.done">完成</button>
+    </div>
+  </div>
+  <div class="dlg-body">
+    <p class="help" data-i18n="org.intro"></p>
+    <div class="org-layout">
+      <section class="org-list">
+        <div class="org-tools">
+          <button class="btn small primary" id="orgAdd" type="button"><svg class="ico" aria-hidden="true"><use href="#i-images"/></svg><span data-i18n="org.add">加入圖片</span></button>
+          <button class="btn small" id="orgAll" type="button" data-i18n="org.selectAll">全選</button>
+          <button class="btn small" id="orgNone" type="button" data-i18n="org.selectNone">取消選擇</button>
+          <button class="btn small ghost" id="orgRemove" type="button"><svg class="ico" aria-hidden="true"><use href="#i-trash"/></svg><span data-i18n="org.remove">移除</span></button>
+          <span class="shown" id="orgCount"></span>
+        </div>
+        <div class="org-grid" id="orgGrid"></div>
+      </section>
+      <aside class="org-form" id="orgForm"></aside>
+    </div>
+  </div>
+  <div class="org-foot">
+    <p class="org-warn" id="orgWarn" role="status"></p>
+    <button class="btn" id="orgExport" type="button"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg><span data-i18n="org.export">匯出 ZIP</span></button>
+    <button class="btn primary" id="orgApply" type="button"><svg class="ico" aria-hidden="true"><use href="#i-folder-plus"/></svg><span data-i18n="org.apply">套用到素材庫</span></button>
+  </div>
+</dialog>
+
 <dialog id="metaDlg" aria-labelledby="metaTitle">
   <div class="dlg-head">
     <h2 id="metaTitle"><svg class="ico" aria-hidden="true"><use href="#i-tag"/></svg><span data-i18n="meta.title">分類資料</span></h2>
@@ -1028,6 +1134,8 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
 <script src="js/adapters/openai.js"></script>
 <script src="js/adapters/comfyui.js"></script>
 <script src="js/enhancer.js"></script>
+<script src="js/zip.js"></script>
+<script src="js/organizer.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

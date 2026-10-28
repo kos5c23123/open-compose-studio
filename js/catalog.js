@@ -1,20 +1,25 @@
 // 素材分類。
 // 1. 由檔名分析分類（不需要任何額外資料）：
 //    姿勢：{系統}_P{編號}_{角度}，例如 full_single_P001_front
-//    人物：ai-face-{id} 或 ai-styling-{id}
+//    人物：ai-face-{id} 或 ai-styling-{id}（原站）；{face|styling}_{髮型}_{名稱}（自製，例如 face_short_001）
 // 2. 可選：由用戶自行從原站儲存的檔案讀取分類資料（姿勢分類、姿勢名稱、髮型），
 //    只在瀏覽器內處理。本 repo 不附帶任何原站資料。
+// 3. 自製素材的分類資料可匯出為 catalog.json（格式見 buildCatalog），再次載入時自動讀取。
 window.Engine = window.Engine || {};
 
 (function () {
-  const ANGLES = ['front', 'high', 'low', 'side', 'diag'];
+  const ANGLES = ['front', 'high', 'low', 'side', 'diag', 'back'];
   const SERIES = ['full_single', 'full_sexy', 'upper80v2', 'pair60'];
   const SECTIONS = ['face', 'styling'];
   const HAIRS = ['ショート', 'ミディアム', 'セミロング', 'ロング'];
+  // 自製人物檔名中的髮型代號，對應原站的髮型分類
+  const HAIR_CODES = { short: 'ショート', medium: 'ミディアム', semilong: 'セミロング', long: 'ロング', other: '' };
+  const CATALOG_FORMAT = 'compose-studio-catalog';
   const META_KEY = 'compose-studio:meta:v1';
 
-  const POSE_RE = /^(.+?)_(P\d{2,4})_(front|high|low|side|diag)$/i;
+  const POSE_RE = /^(.+?)_(P\d{2,4})_(front|high|low|side|diag|back)$/i;
   const FACE_RE = /^ai-(face|styling)-([0-9a-z]+)$/i;
+  const OWN_FACE_RE = /^(face|styling)_(short|medium|semilong|long|other)_(.+)$/i;
 
   // meta：{ pose: { id: [分類, 名稱] }, face: { id: [髮型, 髮型細項] }, series: { 前綴: 原站系統名 } }
   let meta = { pose: {}, face: {}, series: {} };
@@ -27,7 +32,7 @@ window.Engine = window.Engine || {};
   }
 
   const C = Engine.catalog = {
-    ANGLES, SERIES, SECTIONS, HAIRS,
+    ANGLES, SERIES, SECTIONS, HAIRS, HAIR_CODES,
 
     // 由檔名（不含副檔名）取得結構化資料
     parse(name) {
@@ -39,6 +44,8 @@ window.Engine = window.Engine || {};
       }
       m = FACE_RE.exec(name);
       if (m) return { kind: 'face', section: m[1].toLowerCase(), id: m[2].toLowerCase() };
+      m = OWN_FACE_RE.exec(name);
+      if (m) return { kind: 'face', section: m[1].toLowerCase(), hairCode: m[2].toLowerCase(), id: name };
       return null;
     },
 
@@ -49,7 +56,25 @@ window.Engine = window.Engine || {};
     },
     faceMeta(info) {
       const row = info && meta.face[info.id];
-      return { hair: row ? row[0] : '', style: row ? row[1] : '' };
+      const hair = info && info.hairCode ? HAIR_CODES[info.hairCode] : (row ? row[0] : '');
+      return { hair, style: row ? row[1] : '' };
+    },
+    // 寫入自製素材的分類資料
+    setPose(id, cat, name) {
+      if (cat || name) meta.pose[id] = [cat || '', name || ''];
+      else delete meta.pose[id];
+    },
+    setFace(id, style) {
+      if (style) meta.face[id] = ['', style];
+      else delete meta.face[id];
+    },
+    setSeries(prefix, label) {
+      if (label) meta.series[prefix] = label;
+    },
+    save() { saveMeta(); },
+    // catalog.json：{ format, version, pose: { id: [分類, 名稱] }, face: { id: [髮型, 細項] }, series: { 前綴: 名稱 } }
+    buildCatalog(data) {
+      return JSON.stringify(Object.assign({ format: CATALOG_FORMAT, version: 1, pose: {}, face: {}, series: {} }, data), null, 2);
     },
     seriesName(prefix) {
       const key = `series.${prefix}`;
@@ -71,6 +96,18 @@ window.Engine = window.Engine || {};
     // 姿勢：原站網頁另存的 HTML（內含 const D=[...]）
     // 人物：原站的 data/images.js（內含 window.GALLERY_IMAGES = [...]）
     importText(text) {
+      if (/^\s*\{/.test(text)) {
+        let d;
+        try { d = JSON.parse(text); } catch (e) { d = null; }
+        if (d && d.format === CATALOG_FORMAT) {
+          let n = 0;
+          for (const [id, row] of Object.entries(d.pose || {})) { meta.pose[id] = [String(row[0] || ''), String(row[1] || '')]; n++; }
+          for (const [id, row] of Object.entries(d.face || {})) { meta.face[id] = [String(row[0] || ''), String(row[1] || '')]; n++; }
+          for (const [k, v] of Object.entries(d.series || {})) meta.series[k] = String(v);
+          saveMeta();
+          return { kind: 'own', n };
+        }
+      }
       const pose = /const\s+D\s*=\s*(\[[\s\S]*?\])\s*;\s*\n/.exec(text);
       if (pose) {
         let rows;
@@ -118,6 +155,7 @@ window.Engine = window.Engine || {};
       'angle.low': '仰視',
       'angle.side': '側面',
       'angle.diag': '斜側',
+      'angle.back': '背面',
       'section.face': '臉部',
       'section.styling': '造型',
       'hair.ショート': '短髮',
@@ -135,6 +173,7 @@ window.Engine = window.Engine || {};
       'angle.low': 'Low',
       'angle.side': 'Side',
       'angle.diag': '3/4',
+      'angle.back': 'Back',
       'section.face': 'Face',
       'section.styling': 'Styling',
       'hair.ショート': 'Short',
