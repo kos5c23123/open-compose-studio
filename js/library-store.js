@@ -6,7 +6,10 @@ window.Engine = window.Engine || {};
 (function () {
   const DB_NAME = 'compose-studio';
   const STORE = 'folders';
-  const FILE_RE = /\.(png|jpe?g|webp|html?|js|json)$/i;
+  // 素材圖片，以及資料夾內可能附帶、從原站儲存的分類資料檔
+  const IMAGE_RE = /\.(png|jpe?g|webp)$/i;
+  const META_RE = /\.(html?|js|json)$/i;
+  const META_MAX_BYTES = 8 * 1024 * 1024;
   const BATCH = 32;
 
   function openDb() {
@@ -34,7 +37,29 @@ window.Engine = window.Engine || {};
     }
   }
 
-  const keyOf = (slot, handle) => `${slot}:${handle.name}`;
+  // 所有紀錄連同其鍵：[{ key, slot, handle }]
+  async function rows() {
+    const db = await openDb();
+    try {
+      return await new Promise((resolve, reject) => {
+        const found = [];
+        const req = db.transaction(STORE, 'readonly').objectStore(STORE).openCursor();
+        req.onsuccess = () => {
+          const cur = req.result;
+          if (!cur) { resolve(found); return; }
+          found.push({ key: cur.key, ...cur.value });
+          cur.continue();
+        };
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  }
+  const removeKeys = (keys) => run('readwrite', (s) => {
+    for (const k of keys) s.delete(k);
+    return s.count();
+  });
 
   // 遞迴列出資料夾內的圖片及資料檔；path 與 <input webkitdirectory> 的 webkitRelativePath 相同，
   // 這樣由選取或還原載入的素材會有相同的 id
@@ -44,7 +69,7 @@ window.Engine = window.Engine || {};
       const files = [];
       for await (const [name, handle] of dir.entries()) {
         if (handle.kind === 'directory') await walk(handle, `${prefix}${name}/`);
-        else if (FILE_RE.test(name)) files.push({ handle, path: `${prefix}${name}` });
+        else if (IMAGE_RE.test(name) || META_RE.test(name)) files.push({ handle, path: `${prefix}${name}` });
       }
       for (let i = 0; i < files.length; i += BATCH) {
         const batch = files.slice(i, i + BATCH);
@@ -57,6 +82,7 @@ window.Engine = window.Engine || {};
   }
 
   Engine.library = {
+    IMAGE_RE, META_RE, META_MAX_BYTES,
     canRemember: typeof window.showDirectoryPicker === 'function' && 'indexedDB' in window,
     pickDirectory: () => window.showDirectoryPicker({ mode: 'read' }),
     scan,
@@ -65,16 +91,18 @@ window.Engine = window.Engine || {};
       const opts = { mode: 'read' };
       return request ? handle.requestPermission(opts) : handle.queryPermission(opts);
     },
-    remember: (slot, handle) => run('readwrite', (s) => s.put({ slot, handle }, keyOf(slot, handle))),
-    async recall() {
-      return run('readonly', (s) => s.getAll());
+    // 同一個資料夾再選一次時沿用原本的紀錄；同名但不同的資料夾另存一筆
+    async remember(slot, handle) {
+      let key = `${slot}:${handle.name}:${Date.now()}`;
+      for (const r of await rows()) {
+        if (r.slot === slot && await r.handle.isSameEntry(handle)) key = r.key;
+      }
+      await run('readwrite', (s) => s.put({ slot, handle }, key));
     },
+    recall: rows,
     async forget(slot) {
-      const rows = await run('readonly', (s) => s.getAll());
-      await run('readwrite', (s) => {
-        for (const r of rows) if (r.slot === slot) s.delete(keyOf(slot, r.handle));
-        return s.count();
-      });
-    }
+      await removeKeys((await rows()).filter((r) => r.slot === slot).map((r) => r.key));
+    },
+    forgetFolder: (row) => removeKeys([row.key])
   };
 })();

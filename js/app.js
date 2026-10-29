@@ -61,6 +61,8 @@
     promptEdited: false,
     history: [],
     pendingFolders: [],
+    // 每按一次「清除」加一；還原中的資料夾讀完後如發現已被清除，就不再加入
+    libVersion: { face: 0, outfit: 0, pose: 0 },
     abort: null,
     prefs: {
       engine: 'gemini',
@@ -159,12 +161,19 @@
     if (n) $('#restoreText').textContent = t('restore.text', { n });
   }
 
-  async function loadSavedFolder({ slot, handle }) {
+  async function loadSavedFolder(row) {
+    const version = state.libVersion[row.slot];
+    let entries;
     try {
-      await addFiles(slot, await L.scan(handle));
+      entries = await L.scan(row.handle);
     } catch (e) {
-      setStatus(t('restore.fail', { name: handle.name }), true);
+      setStatus(t('restore.fail', { name: row.handle.name }), true);
+      // 資料夾已被移動或刪除：不再記住，以免每次載入都出現同一個錯誤
+      if (e.name === 'NotFoundError') L.forgetFolder(row).catch((err) => setStatus(err.message || String(err), true));
+      return;
     }
+    if (state.libVersion[row.slot] !== version) return;
+    await addFiles(row.slot, entries);
   }
 
   // 重新選回上次已選的人物、服裝、姿勢
@@ -181,31 +190,37 @@
 
   // 已有讀取權限的資料夾直接載入，其餘等用戶按「還原資料夾」
   async function restoreFolders() {
+    const ready = [];
     try {
       const pending = [];
       for (const row of await L.recall()) {
-        if (await L.permission(row.handle, false) === 'granted') await loadSavedFolder(row);
-        else pending.push(row);
+        (await L.permission(row.handle, false) === 'granted' ? ready : pending).push(row);
       }
       state.pendingFolders = pending;
     } catch (e) {
       setStatus(e.message || String(e), true);
     }
     renderRestoreBar();
+    for (const row of ready) await loadSavedFolder(row);
     reselect();
   }
 
-  // 詢問讀取權限必須由點擊觸發；未獲允許的資料夾會留在列表，可再按一次
+  // 詢問讀取權限必須由點擊觸發，而且點擊的效力很短，所以先逐一詢問，全部問完才讀取。
+  // 未獲允許的資料夾會留在列表，可再按一次
   async function grantFolders() {
+    const granted = [];
     const left = [];
     for (const row of state.pendingFolders) {
-      let granted = false;
-      try { granted = (await L.permission(row.handle, true)) === 'granted'; } catch (e) { granted = false; }
-      if (granted) await loadSavedFolder(row);
-      else left.push(row);
+      try {
+        (await L.permission(row.handle, true) === 'granted' ? granted : left).push(row);
+      } catch (e) {
+        left.push(row);
+        setStatus(e.message || String(e), true);
+      }
     }
     state.pendingFolders = left;
     renderRestoreBar();
+    for (const row of granted) await loadSavedFolder(row);
     reselect();
   }
 
@@ -217,11 +232,12 @@
   // 素材以 { file, path } 表示；由 <input> 取得的 File 以 webkitRelativePath（或檔名）作為 path
   const toEntry = (f) => (f instanceof File ? { file: f, path: f.webkitRelativePath || f.name } : f);
 
+  // 回傳新加入的圖片數量
   async function addFiles(slot, fileList) {
     const all = Array.from(fileList).map(toEntry);
-    const files = all.filter((e) => /\.(png|jpe?g|webp)$/i.test(e.file.name));
+    const files = all.filter((e) => L.IMAGE_RE.test(e.file.name));
     // 資料夾內如有從原站儲存的分類資料檔，一併讀取
-    const metaFiles = all.filter((e) => /\.(html?|js|json)$/i.test(e.file.name) && e.file.size < 8 * 1024 * 1024);
+    const metaFiles = all.filter((e) => L.META_RE.test(e.file.name) && e.file.size < L.META_MAX_BYTES);
     const metaMsgs = [];
     for (const e of metaFiles) {
       const res = await importMetaFile(e.file);
@@ -230,12 +246,13 @@
     if (!files.length) {
       if (metaMsgs.length) { setStatus(metaMsgs.join(' ')); renderLibrary(); }
       else setStatus(t('status.noImages'), true);
-      return;
+      return 0;
     }
     const added = addItems(slot, files);
     setStatus([t('status.loaded', { n: added, label: slotLabel(slot) }), ...metaMsgs].join(' '));
     renderTabs();
     renderLibrary();
+    return added;
   }
 
   function addItems(slot, files) {
@@ -263,11 +280,7 @@
     const drop = new Set(replaceIds);
     state.libs[slot] = state.libs[slot].filter((item) => {
       if (!drop.has(item.id)) return true;
-      if (item.url) URL.revokeObjectURL(item.url);
-      if (item.thumb && item.thumb !== item.url) URL.revokeObjectURL(item.thumb);
-      // 歷史紀錄仍會引用此素材，清除已失效的網址，之後需要時再重新建立
-      item.url = null;
-      item.thumb = null;
+      releaseUrls(item);
       return false;
     });
     if (state.selected[slot] && drop.has(state.selected[slot].id)) setSelected(slot, null);
@@ -295,15 +308,19 @@
     savePrefs();
   }
 
+  // 歷史紀錄仍會引用已移除的素材，所以清除已失效的網址，之後需要時再重新建立
+  function releaseUrls(item) {
+    if (item.url) URL.revokeObjectURL(item.url);
+    if (item.thumb && item.thumb !== item.url) URL.revokeObjectURL(item.thumb);
+    item.url = null;
+    item.thumb = null;
+  }
+
   function clearLibrary(slot) {
-    for (const item of state.libs[slot]) {
-      if (item.url) URL.revokeObjectURL(item.url);
-      if (item.thumb && item.thumb !== item.url) URL.revokeObjectURL(item.thumb);
-      item.url = null;
-      item.thumb = null;
-    }
+    for (const item of state.libs[slot]) releaseUrls(item);
     state.libs[slot] = [];
-    if (state.selected[slot]) { setSelected(slot, null); renderSlots(); updatePrompt(); }
+    state.libVersion[slot]++;
+    if (state.selected[slot] || state.prefs.selected[slot]) { setSelected(slot, null); renderSlots(); updatePrompt(); }
     state.filter[slot] = emptyFilter();
     state.pendingFolders = state.pendingFolders.filter((p) => p.slot !== slot);
     renderRestoreBar();
@@ -461,8 +478,7 @@
     try {
       const dir = await L.pickDirectory();
       setStatus(t('status.reading'));
-      await addFiles(slot, await L.scan(dir));
-      await L.remember(slot, dir);
+      if (await addFiles(slot, await L.scan(dir))) await L.remember(slot, dir);
     } catch (e) {
       if (e.name === 'AbortError') return;
       setStatus(e.message || String(e), true);
@@ -511,7 +527,8 @@
     redrawGrid = null;
 
     if (!lib.length) {
-      const desc = el('p', {}, t('lib.dl.before'), el('a', { href: meta.source, target: '_blank', rel: 'noopener', text: meta.sourceName }), t('lib.dl.after'));
+      const desc = el('p', {}, t('lib.dl.before'), el('a', { href: meta.source, target: '_blank', rel: 'noopener', text: meta.sourceName }), t('lib.dl.after'),
+        slot === 'outfit' ? ` ${t('lib.outfitText')}` : '');
       box.replaceChildren(el('div', { class: 'empty' },
         el('div', { class: 'glyph-lg' }, icon(slot)),
         el('h3', { text: t(`lib.empty.${slot}`) }),
