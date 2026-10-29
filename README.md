@@ -1,6 +1,12 @@
 # Compose Studio (合成棚)
 
-Pick a face, an outfit and a pose, add scene options such as aspect ratio, shot size, camera angle and lighting, and send everything to an image model in one click. Compose Studio writes the prompt for you.
+**Face + outfit + pose = prompt.** Pick a face, an outfit and a pose, add scene options such as aspect ratio, shot size, camera angle and lighting, and send everything to an image model in one click. Compose Studio writes the prompt for you.
+
+**[Open Compose Studio](https://kos5c23123.github.io/open-compose-studio/)** · **[Watch the demo (48 s)](docs/demo.mp4)**
+
+[![Compose Studio: a face, an outfit and a pose combine into a prompt, and the generated image appears below](docs/screenshot.jpg)](docs/demo.mp4)
+
+<sub>The images in the screenshot and the demo are the author's own AI-generated images, not materials from the reference sites.</sub>
 
 Compose Studio is an **engine only**. It ships no images. You download reference materials from their original sites yourself and load them from your own disk. Images go straight from your device to the model you choose (a cloud API or your local ComfyUI) and never pass through any third-party server.
 
@@ -8,13 +14,12 @@ The interface is available in Traditional Chinese and English. Use the 中 / EN 
 
 ## Getting started
 
-1. Download or clone this repository.
-2. Open `index.html` directly in Chrome, Edge or Firefox. No server or build step is needed.
-3. Download materials from the sites listed below and put each type in its own folder. In the app, choose **Load folder**.
-4. Open **Settings**, pick an image engine and enter your API key or local address.
-5. Choose a face, an outfit and a pose. Pick a **quick look** (such as Studio portrait or Cinematic night) or fine-tune the scene in the Framing, Lens, Light, Setting and Subject tabs, then press **Generate**. Click any reading on the stage (for example `LENS 85mm`) to jump to that setting. When you scroll down, a floating bar keeps your picks and the Generate button in reach.
+1. Open **[kos5c23123.github.io/open-compose-studio](https://kos5c23123.github.io/open-compose-studio/)** in Chrome, Edge or Firefox. To run it locally instead, download or clone this repository and open `index.html` directly; no server or build step is needed. Either way, your images never leave your device except to go to the engine you choose.
+2. Download materials from the sites listed below and put each type in its own folder. In the app, choose **Load folder**.
+3. Open **Settings**, pick an image engine and enter your API key or local address.
+4. Choose a face, an outfit and a pose. Pick a **quick look** (such as Studio portrait or Cinematic night) or fine-tune the scene in the Framing, Lens, Light, Setting and Subject tabs, then press **Generate**. Click any reading on the stage (for example `LENS 85mm`) to jump to that setting. When you scroll down, a floating bar keeps your picks and the Generate button in reach.
 
-The face, outfit and pose, together with the scene settings, make up the prompt; the generated image is only its output. The fourth frame on the stage shows the prompt itself (click it to copy the prompt; edit it in the Prompt panel below), and the image appears under the Generate button. Open any earlier result and press **Use this composition** to bring back the face, outfit, pose, scene settings and prompt it was made from.
+The face, outfit and pose, together with the scene settings, make up the prompt; the generated image is only its output. The fourth frame on the stage shows the prompt itself (click it to copy the prompt; edit it in the Prompt panel below), and the image appears under the Generate button. The copy icon under each chosen face, outfit and pose copies that image, so you can paste it straight into another app. Open any earlier result and press **Use this composition** to bring back the face, outfit, pose, scene settings and prompt it was made from.
 
 An outfit image is optional; you can describe the outfit in text instead. If you would rather not connect an API, press **Copy prompt** and paste it, together with the reference images, into the ChatGPT or Gemini web app.
 
