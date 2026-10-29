@@ -183,7 +183,7 @@ html[lang="en"] .dlg-body > h3 .kicker { display: none; }
 .btn:disabled:hover { border-color: var(--line-strong); }
 .btn.primary:disabled::after { display: none; }
 
-/* ---------- 舞台：人物 + 服裝 + 姿勢 = 結果 ---------- */
+/* ---------- 舞台：人物 + 服裝 + 姿勢 = 指令；生成的圖片是輸出 ---------- */
 .stage {
   position: relative; isolation: isolate; overflow: hidden;
   border-radius: var(--r-lg); padding: 20px 26px 20px;
@@ -320,6 +320,14 @@ html[lang="en"] .dlg-body > h3 .kicker { display: none; }
   animation: scan 2s linear infinite;
 }
 .result .slot-meta { font-family: var(--mono); font-size: 11.5px; }
+.prompt-slot .slot-frame { cursor: pointer; align-items: stretch; }
+.prompt-text {
+  position: absolute; inset: 0; padding: 22px 18px; overflow: hidden; text-align: left;
+  font: 400 11px/1.65 var(--mono); color: var(--stage-ink); white-space: pre-wrap;
+  -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent);
+  mask-image: linear-gradient(to bottom, #000 62%, transparent);
+}
+.output { width: min(100%, 280px); margin: 20px auto 0; }
 @keyframes scan { from { background-position: 0 100%, 120% 0; } to { background-position: 0 -100%, -120% 0; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -858,6 +866,14 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
   background: #0b0c0f; border: 1px solid var(--line);
 }
 .viewer-img img { max-height: 68dvh; width: auto; }
+.viewer-refs { display: flex; gap: 10px; margin-top: 14px; }
+.viewer-refs:empty { display: none; }
+.viewer-refs figure { margin: 0; width: 72px; }
+.viewer-refs img {
+  display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover;
+  border-radius: 8px; border: 1px solid var(--line); background: #0b0c0f;
+}
+.viewer-refs figcaption { margin-top: 4px; font-size: 11.5px; text-align: center; color: var(--muted); }
 .viewer pre {
   margin: 14px 0 0; padding: 12px 14px; white-space: pre-wrap;
   font: 12px/1.65 var(--mono); color: var(--muted);
@@ -894,7 +910,9 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
   .equation { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); gap: 14px 6px; }
   .op { width: 22px; height: 22px; font-size: 11px; }
   .op.eq { display: none; }
-  .equation .result { grid-column: 1 / -1; width: min(100%, 260px); justify-self: center; }
+  .equation .result { grid-column: 1 / -1; width: 100%; justify-self: center; }
+  .prompt-slot .slot-frame { aspect-ratio: 16 / 7; }
+  .output { margin-top: 16px; }
   .slot { gap: 8px; }
   .slot-label .en { display: none; }
   .slot-label strong { font-size: 13px; }
@@ -998,12 +1016,10 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
       <span class="op" aria-hidden="true"><svg class="ico"><use href="#i-plus"/></svg></span>
       <div class="slot" data-slot="pose"></div>
       <span class="op eq" aria-hidden="true"><svg class="ico"><use href="#i-equals"/></svg></span>
-      <div class="slot result">
-        <div class="slot-label"><span class="num">OUT</span><strong data-i18n="result.title">結果</strong><span class="en">RESULT</span></div>
-        <button class="slot-frame" id="resultFrame" data-i18n-attr="aria-label:result.view" disabled>
-          <span class="slot-empty"><span class="glyph"><svg class="ico" aria-hidden="true"><use href="#i-aperture"/></svg></span><span data-i18n="result.empty">生成的圖片會顯示在這裡</span></span>
-        </button>
-        <div class="slot-meta"><span class="name" id="resultMeta"></span></div>
+      <div class="slot result prompt-slot">
+        <div class="slot-label"><span class="num">04</span><strong data-i18n="prompt.title">指令</strong><span class="en">PROMPT</span></div>
+        <button class="slot-frame" id="promptFrame" type="button" data-i18n-attr="aria-label:prompt.copy,title:prompt.copy"></button>
+        <div class="slot-meta"><span class="name" id="promptMeta"></span></div>
       </div>
     </div>
 
@@ -1018,6 +1034,13 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
       </button>
       <span class="status" id="status" role="status" aria-live="polite"></span>
     </div>
+    <div class="slot result output">
+      <div class="slot-label"><span class="num">OUT</span><strong data-i18n="result.title">輸出</strong><span class="en">OUTPUT</span></div>
+      <button class="slot-frame" id="resultFrame" data-i18n-attr="aria-label:result.view" disabled>
+        <span class="slot-empty"><span class="glyph"><svg class="ico" aria-hidden="true"><use href="#i-aperture"/></svg></span><span data-i18n="result.empty">生成的圖片會顯示在這裡</span></span>
+      </button>
+      <div class="slot-meta"><span class="name" id="resultMeta"></span></div>
+    </div>
     <div class="filmstrip"><div class="history" id="history" data-i18n-attr="aria-label:history.label"></div></div>
   </section>
 
@@ -1027,6 +1050,11 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
         <div><span class="kicker">Library</span><h2 data-i18n="lib.title">素材庫</h2></div>
         <p class="panel-note"><svg class="ico" aria-hidden="true"><use href="#i-lock"/></svg><span data-i18n="lib.local">圖片只會保留在你的裝置上</span></p>
       </header>
+      <div class="banner" id="restoreBar" hidden>
+        <svg class="ico" aria-hidden="true"><use href="#i-folder"/></svg>
+        <span id="restoreText"></span>
+        <button class="btn small primary" id="restoreBtn" type="button" data-i18n="restore.btn">還原資料夾</button>
+      </div>
       <div class="tabs" role="tablist" id="tabs"></div>
       <div id="library"></div>
     </section>
@@ -1169,10 +1197,16 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
       <div class="source-head">
         <span class="source-ico"><svg class="ico" aria-hidden="true"><use href="#i-outfit"/></svg></span>
         <div>
-          <h3 data-i18n="src.outfit.title">服裝</h3>
-          <p class="byline" data-i18n="src.outfit.text">ギア 正在製作服裝資料庫，公開後請遵守其規則。目前可使用你有權使用的服裝圖，或直接以文字描述。</p>
+          <h3 data-i18n="src.outfit.title">服裝：衣装集 COSTUME-DB-01</h3>
+          <p class="byline"><span data-i18n="src.author">作者</span> ギア · <a href="https://x.com/giaaibusi" target="_blank" rel="noopener">@giaaibusi</a> · <span data-i18n="src.site">原站</span> <a href="https://ai-costume-gallery.pages.dev/" target="_blank" rel="noopener">ai-costume-gallery.pages.dev</a></p>
         </div>
       </div>
+      <ul>
+        <li data-i18n="src.outfit.r1">免費，可作商業創作、編輯及參考用途；不必署名</li>
+        <li data-i18n="src.outfit.r2">圖片數據本身（包括原尺寸及編輯後的版本）禁止再分發、轉載或轉售</li>
+        <li data-i18n="src.outfit.r3">全部由文字生圖 AI 製作，作者已檢查與現有品牌的相似度，但不保證不侵權，請自行確認</li>
+        <li data-i18n="src.outfit.r4">不得用於表現真人或未成年人，亦不得用於違反公序良俗的用途</li>
+      </ul>
     </article>
     <p class="help" data-i18n="src.note">以上規則整理自原站，一切以原站最新版本為準。</p>
   </div>
@@ -1234,6 +1268,15 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
         </div>
       </div>
     </article>
+    <article class="source">
+      <div class="source-head">
+        <span class="source-ico"><svg class="ico" aria-hidden="true"><use href="#i-outfit"/></svg></span>
+        <div>
+          <h3 data-i18n="meta.outfit">服裝</h3>
+          <p class="byline"><span data-i18n="meta.outfitSteps"></span> <a href="https://ai-costume-gallery.pages.dev/" target="_blank" rel="noopener">ai-costume-gallery.pages.dev</a></p>
+        </div>
+      </div>
+    </article>
     <p class="help" data-i18n="meta.tip"></p>
     <div class="meta-actions">
       <button class="btn primary" id="metaPick" type="button"><svg class="ico" aria-hidden="true"><use href="#i-folder"/></svg><span data-i18n="meta.pick">選擇檔案</span></button>
@@ -1246,8 +1289,9 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
 
 <dialog id="viewerDlg" class="viewer" aria-labelledby="viewerTitle">
   <div class="dlg-head">
-    <h2 id="viewerTitle"><svg class="ico" aria-hidden="true"><use href="#i-aperture"/></svg><span data-i18n="view.title">結果</span></h2>
+    <h2 id="viewerTitle"><svg class="ico" aria-hidden="true"><use href="#i-aperture"/></svg><span data-i18n="view.title">輸出</span></h2>
     <div class="dlg-actions">
+      <button class="btn small" id="viewerRestore"><svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg><span data-i18n="view.restore">還原此組合</span></button>
       <a class="btn small primary" id="viewerDownload" download><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg><span data-i18n="view.download">下載</span></a>
       <button class="btn small" id="viewerCopy"><svg class="ico" aria-hidden="true"><use href="#i-copy"/></svg><span data-i18n="prompt.copy">複製 prompt</span></button>
       <button class="btn small" data-close><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg><span data-i18n="view.close">關閉</span></button>
@@ -1255,12 +1299,14 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
   </div>
   <div class="dlg-body">
     <div class="viewer-img"><img id="viewerImg" data-i18n-attr="alt:view.alt" alt="生成結果"></div>
+    <div class="viewer-refs" id="viewerRefs"></div>
     <pre id="viewerPrompt"></pre>
   </div>
 </dialog>
 
 <script src="js/i18n.js"></script>
 <script src="js/catalog.js"></script>
+<script src="js/library-store.js"></script>
 <script src="js/presets.js"></script>
 <script src="js/prompt.js"></script>
 <script src="js/adapters/registry.js"></script>

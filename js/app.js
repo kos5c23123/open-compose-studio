@@ -31,7 +31,7 @@
 
   const SLOTS = [
     { id: 'face', num: '01', en: 'FACE', source: 'https://ai-portrait-gallery.pages.dev/', sourceName: 'AIモデル顔データベース' },
-    { id: 'outfit', num: '02', en: 'OUTFIT', source: null, sourceName: null },
+    { id: 'outfit', num: '02', en: 'OUTFIT', source: 'https://ai-costume-gallery.pages.dev/', sourceName: '衣装集 COSTUME-DB-01' },
     { id: 'pose', num: '03', en: 'POSE', source: 'https://ai-pose-gallery.pages.dev/', sourceName: 'ポーズ集 POSE-DB-01' }
   ];
   const slotLabel = (id) => t(`slot.${id}`);
@@ -39,6 +39,7 @@
   const READOUT = [['aspect', 'AR'], ['shot', 'SHOT'], ['lens', 'LENS'], ['aperture', 'F'], ['light', 'LIGHT'], ['style', 'STYLE']];
   const PAGE = 120;
   const STORE_KEY = 'compose-studio:v1';
+  const L = E.library;
 
   // 場景選項在目前介面語言下的名稱
   const groupName = (g) => (I.lang === 'en' ? g.en : g.zh);
@@ -59,6 +60,9 @@
     pendingSlot: 'face',
     promptEdited: false,
     history: [],
+    pendingFolders: [],
+    // 每按一次「清除」加一；還原中的資料夾讀完後如發現已被清除，就不再加入
+    libVersion: { face: 0, outfit: 0, pose: 0 },
     abort: null,
     prefs: {
       engine: 'gemini',
@@ -68,6 +72,7 @@
       keepHair: true,
       remember: false,
       opts: {},
+      selected: {},
       engines: {},
       enhancer: {}
     }
@@ -134,6 +139,7 @@
     renderReadout();
     renderEngineName();
     renderResult();
+    renderPeek();
     if ($('#settingsDlg').open) renderSettings();
     E.organizer.refresh();
     $('#promptNote').textContent = state.promptEdited ? t('note.edited') : '';
@@ -148,38 +154,113 @@
     renderDock();
   }
 
+  // ---------- 還原上次的資料夾 ----------
+  function renderRestoreBar() {
+    const n = state.pendingFolders.length;
+    $('#restoreBar').hidden = !n;
+    if (n) $('#restoreText').textContent = t('restore.text', { n });
+  }
+
+  async function loadSavedFolder(row) {
+    const version = state.libVersion[row.slot];
+    let entries;
+    try {
+      entries = await L.scan(row.handle);
+    } catch (e) {
+      setStatus(t('restore.fail', { name: row.handle.name }), true);
+      // 資料夾已被移動或刪除：不再記住，以免每次載入都出現同一個錯誤
+      if (e.name === 'NotFoundError') L.forgetFolder(row).catch((err) => setStatus(err.message || String(err), true));
+      return;
+    }
+    if (state.libVersion[row.slot] !== version) return;
+    await addFiles(row.slot, entries);
+  }
+
+  // 重新選回上次已選的人物、服裝、姿勢
+  function reselect() {
+    for (const s of SLOTS) {
+      const id = state.prefs.selected[s.id];
+      if (!id || state.selected[s.id]) continue;
+      state.selected[s.id] = state.libs[s.id].find((i) => i.id === id) || null;
+    }
+    renderSlots();
+    renderLibrary();
+    updatePrompt();
+  }
+
+  // 已有讀取權限的資料夾直接載入，其餘等用戶按「還原資料夾」
+  async function restoreFolders() {
+    const ready = [];
+    try {
+      const pending = [];
+      for (const row of await L.recall()) {
+        (await L.permission(row.handle, false) === 'granted' ? ready : pending).push(row);
+      }
+      state.pendingFolders = pending;
+    } catch (e) {
+      setStatus(e.message || String(e), true);
+    }
+    renderRestoreBar();
+    for (const row of ready) await loadSavedFolder(row);
+    reselect();
+  }
+
+  // 詢問讀取權限必須由點擊觸發，而且點擊的效力很短，所以先逐一詢問，全部問完才讀取。
+  // 未獲允許的資料夾會留在列表，可再按一次
+  async function grantFolders() {
+    const granted = [];
+    const left = [];
+    for (const row of state.pendingFolders) {
+      try {
+        (await L.permission(row.handle, true) === 'granted' ? granted : left).push(row);
+      } catch (e) {
+        left.push(row);
+        setStatus(e.message || String(e), true);
+      }
+    }
+    state.pendingFolders = left;
+    renderRestoreBar();
+    for (const row of granted) await loadSavedFolder(row);
+    reselect();
+  }
+
   // ---------- 素材庫 ----------
   function emptyFilter() {
     return { folder: '', q: '', series: '', cat: '', angle: '', section: '', hair: '', view: 'pose' };
   }
 
+  // 素材以 { file, path } 表示；由 <input> 取得的 File 以 webkitRelativePath（或檔名）作為 path
+  const toEntry = (f) => (f instanceof File ? { file: f, path: f.webkitRelativePath || f.name } : f);
+
+  // 回傳新加入的圖片數量
   async function addFiles(slot, fileList) {
-    const all = Array.from(fileList);
-    const files = all.filter((f) => /\.(png|jpe?g|webp)$/i.test(f.name));
+    const all = Array.from(fileList).map(toEntry);
+    const files = all.filter((e) => L.IMAGE_RE.test(e.file.name));
     // 資料夾內如有從原站儲存的分類資料檔，一併讀取
-    const metaFiles = all.filter((f) => /\.(html?|js|json)$/i.test(f.name) && f.size < 8 * 1024 * 1024);
+    const metaFiles = all.filter((e) => L.META_RE.test(e.file.name) && e.file.size < L.META_MAX_BYTES);
     const metaMsgs = [];
-    for (const f of metaFiles) {
-      const res = await importMetaFile(f);
+    for (const e of metaFiles) {
+      const res = await importMetaFile(e.file);
       if (res) metaMsgs.push(metaStatus(res));
     }
     if (!files.length) {
       if (metaMsgs.length) { setStatus(metaMsgs.join(' ')); renderLibrary(); }
       else setStatus(t('status.noImages'), true);
-      return;
+      return 0;
     }
     const added = addItems(slot, files);
     setStatus([t('status.loaded', { n: added, label: slotLabel(slot) }), ...metaMsgs].join(' '));
     renderTabs();
     renderLibrary();
+    return added;
   }
 
   function addItems(slot, files) {
     const lib = state.libs[slot];
     const seen = new Set(lib.map((i) => i.id));
     let added = 0;
-    for (const f of files) {
-      const path = f.webkitRelativePath || f.name;
+    for (const entry of files.map(toEntry)) {
+      const { file: f, path } = entry;
       const id = `${path}:${f.size}`;
       if (seen.has(id)) continue;
       seen.add(id);
@@ -199,11 +280,10 @@
     const drop = new Set(replaceIds);
     state.libs[slot] = state.libs[slot].filter((item) => {
       if (!drop.has(item.id)) return true;
-      if (item.url) URL.revokeObjectURL(item.url);
-      if (item.thumb && item.thumb !== item.url) URL.revokeObjectURL(item.thumb);
+      releaseUrls(item);
       return false;
     });
-    if (state.selected[slot] && drop.has(state.selected[slot].id)) state.selected[slot] = null;
+    if (state.selected[slot] && drop.has(state.selected[slot].id)) setSelected(slot, null);
     addItems(slot, files);
     state.tab = slot;
     renderTabs();
@@ -218,17 +298,33 @@
     try { return C.importText(await file.text()); } catch (e) { return null; }
   }
   function metaStatus(res) {
-    return t({ pose: 'status.metaPose', face: 'status.metaFace', own: 'status.metaOwn' }[res.kind], { n: res.n });
+    return t({ pose: 'status.metaPose', face: 'status.metaFace', outfit: 'status.metaOutfit', own: 'status.metaOwn' }[res.kind], { n: res.n });
+  }
+
+  // 記低已選素材的 id，重新載入頁面並還原資料夾後可以再選回
+  function setSelected(slot, item) {
+    state.selected[slot] = item;
+    state.prefs.selected = { ...state.prefs.selected, [slot]: item ? item.id : null };
+    savePrefs();
+  }
+
+  // 歷史紀錄仍會引用已移除的素材，所以清除已失效的網址，之後需要時再重新建立
+  function releaseUrls(item) {
+    if (item.url) URL.revokeObjectURL(item.url);
+    if (item.thumb && item.thumb !== item.url) URL.revokeObjectURL(item.thumb);
+    item.url = null;
+    item.thumb = null;
   }
 
   function clearLibrary(slot) {
-    for (const item of state.libs[slot]) {
-      if (item.url) URL.revokeObjectURL(item.url);
-      if (item.thumb && item.thumb !== item.url) URL.revokeObjectURL(item.thumb);
-    }
+    for (const item of state.libs[slot]) releaseUrls(item);
     state.libs[slot] = [];
-    if (state.selected[slot]) { state.selected[slot] = null; renderSlots(); updatePrompt(); }
+    state.libVersion[slot]++;
+    if (state.selected[slot] || state.prefs.selected[slot]) { setSelected(slot, null); renderSlots(); updatePrompt(); }
     state.filter[slot] = emptyFilter();
+    state.pendingFolders = state.pendingFolders.filter((p) => p.slot !== slot);
+    renderRestoreBar();
+    if (L.canRemember) L.forget(slot).catch((e) => setStatus(e.message || String(e), true));
     renderTabs();
     renderLibrary();
   }
@@ -304,6 +400,7 @@
   // 篩選
   const sectionOf = (item) => (item.info && item.info.kind === 'face' ? item.info.section : 'other');
   const seriesOf = (item) => (item.info && item.info.kind === 'pose' ? item.info.series : '');
+  const codeOf = (item) => (item.info && item.info.kind === 'outfit' ? item.info.code : '');
   function searchText(item) {
     const i = item.info;
     const parts = [item.path];
@@ -313,6 +410,8 @@
     } else if (i && i.kind === 'face') {
       const m = C.faceMeta(i);
       parts.push(m.hair, m.style, C.hairName(m.hair), t(`section.${i.section}`));
+    } else if (i && i.kind === 'outfit') {
+      parts.push(C.outfitMeta(i).keywords, C.outfitName(i.code));
     }
     return parts.join(' ').toLowerCase();
   }
@@ -323,6 +422,9 @@
       if (skip !== 'series' && f.series && seriesOf(item) !== f.series) return false;
       if (skip !== 'cat' && f.cat && C.poseMeta(item.info).cat !== f.cat) return false;
       if (skip !== 'angle' && f.angle && !(item.info && item.info.angle === f.angle)) return false;
+    }
+    if (slot === 'outfit') {
+      if (skip !== 'cat' && f.cat && codeOf(item) !== f.cat) return false;
     }
     if (slot === 'face') {
       if (skip !== 'section' && f.section && sectionOf(item) !== f.section) return false;
@@ -365,10 +467,22 @@
     return groups;
   }
 
-  function pickFolder(slot) {
+  // 支援的瀏覽器直接選取資料夾並記住它；其餘使用 <input webkitdirectory>
+  async function pickFolder(slot) {
     state.pendingSlot = slot;
-    $('#folderInput').value = '';
-    $('#folderInput').click();
+    if (!L.canRemember) {
+      $('#folderInput').value = '';
+      $('#folderInput').click();
+      return;
+    }
+    try {
+      const dir = await L.pickDirectory();
+      setStatus(t('status.reading'));
+      if (await addFiles(slot, await L.scan(dir))) await L.remember(slot, dir);
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      setStatus(e.message || String(e), true);
+    }
   }
   function pickFiles(slot) {
     state.pendingSlot = slot;
@@ -413,9 +527,8 @@
     redrawGrid = null;
 
     if (!lib.length) {
-      const desc = meta.source
-        ? el('p', {}, t('lib.dl.before'), el('a', { href: meta.source, target: '_blank', rel: 'noopener', text: meta.sourceName }), t('lib.dl.after'))
-        : el('p', { text: t('lib.outfitHint') });
+      const desc = el('p', {}, t('lib.dl.before'), el('a', { href: meta.source, target: '_blank', rel: 'noopener', text: meta.sourceName }), t('lib.dl.after'),
+        slot === 'outfit' ? ` ${t('lib.outfitText')}` : '');
       box.replaceChildren(el('div', { class: 'empty' },
         el('div', { class: 'glyph-lg' }, icon(slot)),
         el('h3', { text: t(`lib.empty.${slot}`) }),
@@ -436,7 +549,7 @@
       el('label', { class: 'search' }, icon('search'), search),
       el('button', { class: 'btn small', onclick: () => pickFolder(slot) }, icon('folder-plus'), t('lib.addFolder')),
       slot !== 'outfit' ? el('button', { class: 'btn small', onclick: () => E.organizer.open(slot) }, icon('edit'), t('org.open')) : null,
-      slot !== 'outfit' ? el('button', { class: 'btn small', onclick: openMeta }, icon('tag'), t('lib.meta')) : null,
+      el('button', { class: 'btn small', onclick: openMeta }, icon('tag'), t('lib.meta')),
       el('button', { class: 'btn small ghost', onclick: () => clearLibrary(slot) }, icon('trash'), t('lib.clear')));
 
     // 依素材類型建立篩選列
@@ -465,6 +578,12 @@
           segmented(t('lib.view'), [['pose', t('lib.view.pose')], ['card', t('lib.view.card')]], f.view, (v) => { f.view = v; rerender(); }));
         rows.push(line);
       }
+    }
+    if (slot === 'outfit' && lib.some(codeOf)) {
+      const byCode = countBy(filtered(slot, 'cat'), codeOf);
+      const present = C.OUTFIT_CODES.filter((c) => byCode.has(c) || lib.some((i) => codeOf(i) === c));
+      rows.push(facetTabs(t('lib.cat'), [['', t('lib.all'), filtered(slot, 'cat').length],
+        ...present.map((c) => [c, C.outfitName(c), byCode.get(c) || 0])], f.cat, (v) => { f.cat = v; rerender(); }));
     }
     if (slot === 'face' && lib.some((i) => i.info && i.info.kind === 'face')) {
       const bySec = countBy(filtered(slot, 'section'), sectionOf);
@@ -540,6 +659,7 @@
       const m = C.faceMeta(i);
       return [m.hair && C.hairName(m.hair), m.style].filter(Boolean).join(' · ') || item.name;
     }
+    if (i && i.kind === 'outfit') return C.outfitMeta(i).keywords || item.name;
     return item.name;
   }
 
@@ -556,6 +676,9 @@
       const m = C.faceMeta(i);
       tag = m.hair ? C.hairName(m.hair) : '';
       if (m.style) label = m.style;
+    } else if (i && i.kind === 'outfit') {
+      tag = C.outfitName(i.code);
+      label = C.outfitMeta(i).keywords || item.name;
     }
     return el('button', {
       class: 'item', 'data-id': item.id, 'aria-pressed': String(!!sel && sel.id === item.id),
@@ -612,7 +735,7 @@
 
   function select(slot, item) {
     const cur = state.selected[slot];
-    state.selected[slot] = cur && cur.id === item.id ? null : item;
+    setSelected(slot, cur && cur.id === item.id ? null : item);
     renderSlots();
     if (redrawGrid && state.tab === slot) redrawGrid();
     updatePrompt();
@@ -625,8 +748,9 @@
   }
   function renderMetaInfo() {
     const c = C.counts();
-    $('#metaInfo').textContent = c.pose || c.face ? t('meta.info', { p: c.pose, f: c.face }) : t('meta.none');
-    $('#metaClear').disabled = !(c.pose || c.face);
+    const any = c.pose || c.face || c.outfit;
+    $('#metaInfo').textContent = any ? t('meta.info', { p: c.pose, f: c.face, o: c.outfit }) : t('meta.none');
+    $('#metaClear').disabled = !any;
   }
 
   // ---------- 合成區的三格 ----------
@@ -650,7 +774,7 @@
           el('span', { text: t(`slot.pick.${s.id}`) })));
       const meta = el('div', { class: 'slot-meta' },
         el('span', { class: 'name', text: item ? displayName(item) : t('slot.none'), title: item ? item.path : null }),
-        item ? el('button', { class: 'clear', onclick: () => { state.selected[s.id] = null; renderSlots(); renderLibrary(); updatePrompt(); } }, icon('x'), t('slot.remove')) : null);
+        item ? el('button', { class: 'clear', onclick: () => { setSelected(s.id, null); renderSlots(); renderLibrary(); updatePrompt(); } }, icon('x'), t('slot.remove')) : null);
       host.replaceChildren(head, frame, meta);
     }
     updateGenerateButton();
@@ -844,9 +968,16 @@
   function renderPeek() {
     const lines = $('#prompt').value.split('\n').filter((x) => x.trim()).length;
     const lang = { en: 'EN', ja: 'JA', zh: 'ZH' }[state.prefs.lang] || '';
+    const summary = `${lang} · ${t('prompt.lines', { n: lines })}`;
     $('#promptPeek').replaceChildren(
       state.promptEdited ? el('span', { class: 'edited', text: t('prompt.editedTag') }) : '',
-      `${lang} · ${t('prompt.lines', { n: lines })}`);
+      summary);
+    // 合成區的指令格：等式的結果，顯示指令內容
+    const text = $('#prompt').value.trim();
+    $('#promptFrame').replaceChildren(text
+      ? el('span', { class: 'prompt-text', text })
+      : el('span', { class: 'slot-empty' }, el('span', { class: 'glyph' }, icon('text')), el('span', { text: t('prompt.empty') })));
+    $('#promptMeta').textContent = state.promptEdited ? `${t('prompt.editedTag')} · ${summary}` : summary;
   }
 
   // ---------- 生成 ----------
@@ -874,6 +1005,8 @@
     const prompt = $('#prompt').value.trim();
     const aspect = (state.prefs.opts.aspect || ['3:4'])[0];
     if (!refs.length || !prompt) return;
+    // 指令是由這組選擇組成；先記低，生成期間改動選項也不會影響這張圖的紀錄
+    const composition = snapshotComposition();
 
     const ctrl = new AbortController();
     state.abort = ctrl;
@@ -894,7 +1027,7 @@
       });
       const time = new Date();
       for (const blob of blobs) {
-        state.history.unshift({ url: URL.createObjectURL(blob), blob, prompt, engine: adapter.id, time });
+        state.history.unshift({ url: URL.createObjectURL(blob), blob, prompt, composition, engine: adapter.id, time });
       }
       setStatus(t('status.done', { n: blobs.length }));
       renderResult();
@@ -924,9 +1057,57 @@
     }, el('img', { src: h.url, alt: '' }))));
   }
 
+  // 人物、服裝、姿勢加上場景設定，即是組成指令的全部來源
+  function snapshotComposition() {
+    return {
+      refs: { ...state.selected },
+      opts: JSON.parse(JSON.stringify(state.prefs.opts)),
+      text: currentText(),
+      keepHair: state.prefs.keepHair,
+      lang: state.prefs.lang,
+      promptEdited: state.promptEdited
+    };
+  }
+
+  // 還原歷史紀錄中的組合；素材庫已清空的話，先把用過的圖加回去
+  function restoreComposition(h) {
+    const c = h.composition;
+    for (const s of SLOTS) {
+      const used = c.refs[s.id];
+      if (used && !state.libs[s.id].some((i) => i.id === used.id)) addItems(s.id, [{ file: used.file, path: used.path }]);
+      setSelected(s.id, used ? state.libs[s.id].find((i) => i.id === used.id) || null : null);
+    }
+    state.prefs.opts = JSON.parse(JSON.stringify(c.opts));
+    state.prefs.keepHair = c.keepHair;
+    state.prefs.lang = c.lang;
+    $('#outfitText').value = c.text.outfit;
+    $('#hairText').value = c.text.hair;
+    $('#extraText').value = c.text.extra;
+    $('#keepHair').checked = c.keepHair;
+    $('#lang').value = c.lang;
+    savePrefs();
+    renderTabs();
+    renderLibrary();
+    renderSlots();
+    renderScene();
+    renderReadout();
+    // 送出時的指令可能經過手動修改或潤飾，所以直接採用當時的文字
+    updatePrompt(true);
+    $('#prompt').value = h.prompt;
+    state.promptEdited = c.promptEdited;
+    $('#promptNote').textContent = c.promptEdited ? t('note.edited') : '';
+    updateGenerateButton();
+    $('#viewerDlg').close();
+    setStatus(t('status.restored'));
+  }
+
   function openViewer(h) {
     $('#viewerImg').src = h.url;
     $('#viewerPrompt').textContent = h.prompt;
+    $('#viewerRefs').replaceChildren(...SLOTS.filter((s) => h.composition.refs[s.id]).map((s) => el('figure', {},
+      el('img', { src: fullUrl(h.composition.refs[s.id]), alt: '' }),
+      el('figcaption', { text: slotLabel(s.id) }))));
+    $('#viewerRestore').onclick = () => restoreComposition(h);
     const a = $('#viewerDownload');
     a.href = h.url;
     const stamp = h.time.toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -1039,10 +1220,12 @@
       renderMetaInfo();
       renderLibrary();
     });
+    $('#restoreBtn').addEventListener('click', grantFolders);
     $('#folderInput').addEventListener('change', (e) => addFiles(state.pendingSlot, e.target.files));
     $('#filesInput').addEventListener('change', (e) => addFiles(state.pendingSlot, e.target.files));
     $('#generate').addEventListener('click', generate);
     $('#cancel').addEventListener('click', () => state.abort && state.abort.abort());
+    $('#promptFrame').addEventListener('click', () => copy($('#prompt').value));
     $('#copyPrompt').addEventListener('click', () => copy($('#prompt').value));
     $('#resetPrompt').addEventListener('click', () => updatePrompt(true));
     $('#enhance').addEventListener('click', enhance);
@@ -1060,6 +1243,8 @@
     $('#openSources').addEventListener('click', () => $('#sourcesDlg').showModal());
     document.querySelectorAll('dialog [data-close]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
     document.querySelectorAll('dialog').forEach((d) => d.addEventListener('click', (e) => { if (e.target === d) d.close(); }));
+
+    if (L.canRemember) restoreFolders();
   }
 
   init();
