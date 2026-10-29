@@ -4,8 +4,9 @@
 //    人物：ai-face-{id} 或 ai-styling-{id}（原站）；{face|styling}_{髮型}_{名稱}（自製，例如 face_short_001）
 //    服裝：{季節或類別代號}-{編號}，例如 SPR-0001（原站下載的檔名）
 // 2. 可選：由用戶自行從原站儲存的檔案讀取分類資料（姿勢分類、姿勢名稱、髮型），
-//    只在瀏覽器內處理。本 repo 不附帶任何原站資料。服裝只需要關鍵字，類別已在檔名內。
+//    只在瀏覽器內處理。服裝只需要關鍵字，類別已在檔名內。
 // 3. 自製素材的分類資料可匯出為 catalog.json（格式見 buildCatalog），再次載入時自動讀取。
+// 4. 內置圖庫（js/builtin.js）的分類資料由 addBuiltin 加入，只保留在記憶體。
 window.Engine = window.Engine || {};
 
 (function () {
@@ -34,6 +35,10 @@ window.Engine = window.Engine || {};
   function saveMeta() {
     try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch (e) { /* ignore */ }
   }
+  // 內置圖庫的分類資料：不寫入 storage，每次載入圖庫時重新加入。
+  // 名稱可以是字典鍵或 { zh, en }，顯示時按介面語言轉換
+  const builtin = { pose: {}, face: {}, outfit: {} };
+  const local = (v) => Engine.i18n.tx(v);
 
   const C = Engine.catalog = {
     ANGLES, SERIES, SECTIONS, HAIRS, HAIR_CODES, OUTFIT_CODES,
@@ -60,16 +65,19 @@ window.Engine = window.Engine || {};
 
     // 取得分類資料（檔名分析 + 已載入的原站資料）
     poseMeta(info) {
-      const row = info && meta.pose[info.id];
-      return { cat: row ? row[0] : '', name: row ? row[1] : '' };
+      const row = info && (meta.pose[info.id] || builtin.pose[info.id]);
+      return { cat: row ? local(row[0]) : '', name: row ? local(row[1]) : '' };
     },
     faceMeta(info) {
-      const row = info && meta.face[info.id];
+      const row = info && (meta.face[info.id] || builtin.face[info.id]);
       const hair = info && info.hairCode ? HAIR_CODES[info.hairCode] : (row ? row[0] : '');
-      return { hair, style: row ? row[1] : '' };
+      return { hair, style: row ? local(row[1]) : '' };
     },
     outfitMeta(info) {
-      return { keywords: (info && meta.outfit[info.id]) || '' };
+      return { keywords: (info && (meta.outfit[info.id] || builtin.outfit[info.id])) || '' };
+    },
+    addBuiltin(kind, id, row) {
+      builtin[kind][id] = row;
     },
     outfitName(code) {
       return Engine.t(`outfit.${code}`);

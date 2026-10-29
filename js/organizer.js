@@ -37,7 +37,7 @@ window.Engine = window.Engine || {};
     const used = new Set();
     for (const e of org.entries) if (!(skip && skip.has(e.key)) && slugify(e.series, 'my-pose') === s) used.add(e.num);
     for (const item of ctx.libraryItems('pose')) {
-      if (item.info && item.info.kind === 'pose' && item.info.series === s) used.add(parseInt(item.info.num.slice(1), 10) || 0);
+      if (!item.src && item.info && item.info.kind === 'pose' && item.info.series === s) used.add(parseInt(item.info.num.slice(1), 10) || 0);
     }
     return used;
   }
@@ -73,7 +73,7 @@ window.Engine = window.Engine || {};
     const seen = new Map();
     const lib = new Set();
     const origIds = new Set(org.entries.map((e) => e.origId).filter(Boolean));
-    for (const item of ctx.libraryItems(slotOf(org.kind))) if (!origIds.has(item.id)) lib.add(item.file.name.toLowerCase());
+    for (const item of ctx.libraryItems(slotOf(org.kind))) if (!origIds.has(item.id) && !item.src) lib.add(item.file.name.toLowerCase());
     for (const e of org.entries) {
       const n = fileName(e).toLowerCase();
       if (lib.has(n)) bad.add(e.key);
