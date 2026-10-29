@@ -14,9 +14,17 @@ The interface is available in Traditional Chinese and English. Use the 中 / EN 
 4. Open **Settings**, pick an image engine and enter your API key or local address.
 5. Choose a face, an outfit and a pose. Pick a **quick look** (such as Studio portrait or Cinematic night) or fine-tune the scene in the Framing, Lens, Light, Setting and Subject tabs, then press **Generate**. Click any reading on the stage (for example `LENS 85mm`) to jump to that setting. When you scroll down, a floating bar keeps your picks and the Generate button in reach.
 
+The face, outfit and pose, together with the scene settings, make up the prompt; the generated image is only its output. The fourth frame on the stage shows the prompt itself (click it to copy the prompt; edit it in the Prompt panel below), and the image appears under the Generate button. Open any earlier result and press **Use this composition** to bring back the face, outfit, pose, scene settings and prompt it was made from.
+
 An outfit image is optional; you can describe the outfit in text instead. If you would rather not connect an API, press **Copy prompt** and paste it, together with the reference images, into the ChatGPT or Gemini web app.
 
 On iOS Safari, folder selection is not supported. Use **Choose images** to pick individual files.
+
+### After a reload
+
+In Chrome and Edge, Compose Studio remembers the folders you load and the face, outfit and pose you had selected. After you reload the page, a bar above the library asks you to press **Restore folders** and allow access; the folders and your selection then come back. (If you choose "Allow on every visit" in the browser prompt, they come back without asking.) The images are not copied; if a folder has been moved or deleted, it cannot be restored.
+
+Firefox and Safari cannot remember folders, so load them again after a reload. Images added with **Choose images**, and images renamed in **Organize**, are not remembered in any browser; export Organize results as a ZIP and load that folder instead.
 
 ## Browsing by category
 
@@ -24,10 +32,12 @@ The library reads the categories that are already in the downloaded file names, 
 
 - **Poses** (`full_single_P001_front.png`): filter by series (full body standard, full body glamour, upper body, two people) and by angle (front, high, low, side, three-quarter). The **By pose** view groups the five angles of each pose into one card; hover an angle to preview it and click to choose it. **Each image** shows every file separately.
 - **Faces** (`ai-face-….png`, `ai-styling-….png`): filter by face or styling images.
+- **Outfits** (`SPR-0001.png`, the name the original site gives its downloads): filter by spring, summer, autumn, winter, lingerie, party, swimwear or sexy, read from the code before the dash (`SPR`, `SUM`, `AUT`, `WIN`, `LNG`, `PTY`, `SWM`, `SXY`).
 
-To also filter by the original sites' pose categories, pose names and hairstyles, load their catalog data with the **Catalog** button:
+To also filter by the original sites' pose categories, pose names and hairstyles, or to search outfits by keyword (for example `denim`), load their catalog data with the **Catalog** button:
 
 - Poses: open [ai-pose-gallery.pages.dev](https://ai-pose-gallery.pages.dev/), save the page with Ctrl+S (⌘S on Mac) and choose the saved HTML file.
+- Outfits: open [ai-costume-gallery.pages.dev](https://ai-costume-gallery.pages.dev/), save the page with Ctrl+S (⌘S on Mac) and choose the saved HTML file. Only the keywords are read; the categories already come from the file names.
 - Faces: open [ai-portrait-gallery.pages.dev/data/images.js](https://ai-portrait-gallery.pages.dev/data/images.js), save it and choose the file.
 
 You can also drop those files into your materials folder; they are picked up automatically when you load the folder. The catalog is parsed in your browser and kept in its localStorage. This repository does not include any data from the original sites.
@@ -40,7 +50,7 @@ Compose Studio does not rehost any materials. Download them from the original si
 |---|---|---|---|
 | Poses | [ポーズ集 POSE-DB-01](https://ai-pose-gallery.pages.dev/) | ギア ([@giaaibusi](https://x.com/giaaibusi)) | Free; works you create may be used commercially, and the images may be edited. **The image data itself, including processed versions, may not be redistributed, reposted or resold.** Must not be used to depict real people or minors. |
 | Faces | [AIモデル顔データベース](https://ai-portrait-gallery.pages.dev/) | あぎ ([@agi_aibusi](https://x.com/agi_aibusi)) | CC0; commercial use and editing allowed. All faces are AI-generated fictional people; do not impersonate real people. The author asks that the images themselves not be redistributed. |
-| Outfits | Outfit database in progress by ギア | ギア | Not released yet. Follow its rules once it is published. |
+| Outfits | [衣装集 COSTUME-DB-01](https://ai-costume-gallery.pages.dev/) | ギア ([@giaaibusi](https://x.com/giaaibusi)) | Free; commercial creative work, editing and reference use allowed, credit optional. **The image data itself, including original-size and edited versions, may not be redistributed, reposted or resold.** All images are made with text-to-image AI; the author checked for similarity to existing brands but does not guarantee non-infringement. Must not be used to depict real people or minors. |
 
 This summary is taken from the original sites. The latest version on each site prevails.
 
@@ -104,6 +114,7 @@ Any OpenAI-compatible endpoint works, including Ollama (`http://127.0.0.1:11434/
 index.html              Markup, styles and the SVG icon sprite
 js/i18n.js              Interface strings (Traditional Chinese, English) and translation helpers
 js/catalog.js           File-name parsing and optional catalog import for categories
+js/library-store.js     Remembers loaded folders across reloads (Chrome and Edge)
 js/organizer.js         Organize dialog for naming your own materials
 js/zip.js               Minimal ZIP writer used by the export
 js/presets.js           Scene options (edit this file to add options)
@@ -146,6 +157,8 @@ Engine.adapters.register({
 ## Privacy
 
 By default, API keys are not saved. Catalog data you import is kept in this browser's localStorage until you clear it in the Catalog dialog. They are stored in the browser's localStorage only if you tick **Remember settings on this device** in Settings. Reference images are sent only from your device to the engine you choose. Generated images are kept in memory and are lost when you reload the page.
+
+In Chrome and Edge, a reference to each folder you load (not the images themselves) is kept in this browser's IndexedDB, and the IDs of your selected images in localStorage, until you press Clear for that library.
 
 ## Acceptable use
 
