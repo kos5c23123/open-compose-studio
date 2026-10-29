@@ -69,6 +69,9 @@ window.Engine = window.Engine || {};
       'engine.pick': '選擇生成引擎',
 
       'lib.label': '素材庫',
+      'page.label': '分頁', 'page.library': '素材庫', 'page.prompt': 'Prompt',
+      'picked.title': '已揀', 'picked.go': '去 Prompt',
+      'lib.filters': '篩選', 'lib.type': '款式', 'lib.color': '顏色', 'lib.tag': '髮型特徵',
       'lib.title': '素材庫',
       'lib.local': '圖片只會保留在你的裝置上',
       'lib.empty.face': '尚未載入人物素材',
@@ -296,6 +299,9 @@ window.Engine = window.Engine || {};
       'engine.pick': 'Choose image engine',
 
       'lib.label': 'Library',
+      'page.label': 'Pages', 'page.library': 'Library', 'page.prompt': 'Prompt',
+      'picked.title': 'Picked', 'picked.go': 'Go to Prompt',
+      'lib.filters': 'Filters', 'lib.type': 'Garment', 'lib.color': 'Color', 'lib.tag': 'Hair features',
       'lib.title': 'Reference images',
       'lib.local': 'Images stay on your device',
       'lib.empty.face': 'No face images yet',

@@ -592,6 +592,7 @@
     $('#pagePrompt').hidden = page !== 'prompt';
     document.querySelectorAll('.page-tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.page === page)));
     if (page === 'library') $('#dock').hidden = true;
+    else requestAnimationFrame(updateDock);
   }
   // 由 Prompt 分頁的格子或浮動列跳去素材庫的某一類
   function openLibrary(slot) {
@@ -614,7 +615,7 @@
         }, icon('x')) : null);
     });
     $('#picked').replaceChildren(el('span', { class: 'kicker', text: t('picked.title') }), ...picks,
-      el('button', { class: 'btn primary go', type: 'button', disabled: !SLOTS.some((s) => state.selected[s.id]), onclick: () => setPage('prompt') },
+      el('button', { class: 'btn primary pick-go', type: 'button', disabled: !SLOTS.some((s) => state.selected[s.id]), onclick: () => setPage('prompt') },
         icon('sparkle'), t('picked.go')));
   }
 
@@ -649,7 +650,8 @@
   // 多值標籤（款式、顏色、髮型）的篩選按鈕；swatch 為顏色圓點
   function tagFacet(slot, key, prefix, field, f, rerender, swatch) {
     const counts = countTags(filtered(slot, field), key);
-    if (!counts.size) return null;
+    // 沒有圖片帶這類標籤（例如只剩自己載入的圖片）時，清除舊的篩選，以免全部被篩走
+    if (!counts.size) { f[field] = ''; return null; }
     const keys = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
     return fgroup(t(`lib.${field}`), el('div', { class: 'ftabs', role: 'group', 'aria-label': t(`lib.${field}`) },
       ...[['', t('lib.all'), null], ...keys.map((k) => [k, t(`${prefix}.${k}`), counts.get(k)])].map(([v, text, n]) => el('button', {
@@ -732,35 +734,24 @@
     return rows;
   }
 
-  function renderLibrary() {
-    const slot = state.tab;
+  // 素材庫未有圖片時的說明及按鈕
+  function emptyLibrary(slot) {
     const meta = SLOTS.find((s) => s.id === slot);
-    const box = $('#library');
-    const lib = state.libs[slot];
-    redrawGrid = null;
+    const desc = el('p', {}, t('lib.dl.before'), el('a', { href: meta.source, target: '_blank', rel: 'noopener', text: meta.sourceName }), t('lib.dl.after'),
+      slot === 'outfit' ? ` ${t('lib.outfitText')}` : '');
+    return el('div', { class: 'empty' },
+      el('div', { class: 'glyph-lg' }, icon(slot)),
+      el('h3', { text: t(`lib.empty.${slot}`) }),
+      desc,
+      el('div', { class: 'actions' },
+        el('button', { class: 'btn primary', onclick: () => loadBuiltin([slot], true) }, icon('images'), t('lib.useBuiltin')),
+        el('button', { class: 'btn', onclick: () => pickFolder(slot) }, icon('folder'), t('lib.loadFolder')),
+        el('button', { class: 'btn', onclick: () => pickFiles(slot) }, icon('images'), t('lib.pickFiles')),
+        slot !== 'outfit' ? el('button', { class: 'btn', onclick: () => E.organizer.open(slot) }, icon('edit'), t('org.openOwn')) : null));
+  }
 
-    if (!lib.length) {
-      const desc = el('p', {}, t('lib.dl.before'), el('a', { href: meta.source, target: '_blank', rel: 'noopener', text: meta.sourceName }), t('lib.dl.after'),
-        slot === 'outfit' ? ` ${t('lib.outfitText')}` : '');
-      box.replaceChildren(el('div', { class: 'empty' },
-        el('div', { class: 'glyph-lg' }, icon(slot)),
-        el('h3', { text: t(`lib.empty.${slot}`) }),
-        desc,
-        el('div', { class: 'actions' },
-          el('button', { class: 'btn primary', onclick: () => loadBuiltin([slot], true) }, icon('images'), t('lib.useBuiltin')),
-          el('button', { class: 'btn', onclick: () => pickFolder(slot) }, icon('folder'), t('lib.loadFolder')),
-          el('button', { class: 'btn', onclick: () => pickFiles(slot) }, icon('images'), t('lib.pickFiles')),
-          slot !== 'outfit' ? el('button', { class: 'btn', onclick: () => E.organizer.open(slot) }, icon('edit'), t('org.openOwn')) : null)));
-      $('#libFacets').replaceChildren();
-      return;
-    }
-
-    const f = state.filter[slot];
-    const rerender = () => { state.page[slot] = 1; renderLibrary(); };
-    const search = el('input', { type: 'search', placeholder: t(`lib.searchPh.${slot}`), value: f.q, 'aria-label': t('lib.search') });
-    search.addEventListener('input', () => { f.q = search.value; state.page[slot] = 1; renderGrid(); });
-
-    const toolbar = el('div', { class: 'toolbar' },
+  function libToolbar(slot, lib, search) {
+    return el('div', { class: 'toolbar' },
       el('label', { class: 'search' }, icon('search'), search),
       el('button', { class: 'btn small', onclick: () => pickFolder(slot) }, icon('folder-plus'), t('lib.addFolder')),
       // 已清除內置圖庫，或者只剩由歷史紀錄加回的個別圖片時，都可以再載入
@@ -770,6 +761,25 @@
       el('button', { class: 'btn small', onclick: openMeta }, icon('tag'), t('lib.meta')),
       el('button', { class: 'btn small ghost', onclick: () => clearLibrary(slot) }, icon('trash'), t('lib.clear')),
       lib.some((i) => i.suggestive) ? suggestiveToggle() : null);
+  }
+
+  function renderLibrary() {
+    const slot = state.tab;
+    const box = $('#library');
+    const lib = state.libs[slot];
+    redrawGrid = null;
+
+    if (!lib.length) {
+      box.replaceChildren(emptyLibrary(slot));
+      $('#libFacets').replaceChildren();
+      return;
+    }
+
+    const f = state.filter[slot];
+    const rerender = () => { state.page[slot] = 1; renderLibrary(); };
+    const search = el('input', { type: 'search', placeholder: t(`lib.searchPh.${slot}`), value: f.q, 'aria-label': t('lib.search') });
+    search.addEventListener('input', () => { f.q = search.value; state.page[slot] = 1; renderGrid(); });
+    const toolbar = libToolbar(slot, lib, search);
 
     const rows = buildFacets(slot, lib, f, rerender);
 
@@ -1088,13 +1098,17 @@
     $('#dockGo').disabled = $('#generate').disabled;
     dock.classList.toggle('busy', !!state.abort);
   }
+  // 生成列大部分不在畫面內時顯示浮動列；切換到 Prompt 分頁時 IntersectionObserver 未必觸發，所以亦會直接計算
+  const DOCK_SHOW_BELOW = 0.6;
+  function updateDock() {
+    const r = $('.actionbar').getBoundingClientRect();
+    const seen = r.height ? Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0)) / r.height : 0;
+    $('#dock').hidden = state.prefs.page !== 'prompt' || seen > DOCK_SHOW_BELOW;
+    if (!$('#dock').hidden) renderDock();
+  }
   function watchDock() {
     if (!('IntersectionObserver' in window)) return;
-    new IntersectionObserver((entries) => {
-      const e = entries[0];
-      $('#dock').hidden = state.prefs.page !== 'prompt' || (e.isIntersecting && e.intersectionRatio > 0.6);
-      if (!$('#dock').hidden) renderDock();
-    }, { threshold: [0, 0.6, 1] }).observe($('.actionbar'));
+    new IntersectionObserver(updateDock, { threshold: [0, DOCK_SHOW_BELOW, 1] }).observe($('.actionbar'));
   }
 
   // ---------- Prompt ----------
