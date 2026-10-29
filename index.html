@@ -298,6 +298,7 @@ html[lang="en"] .dlg-body > h3 .kicker { display: none; }
   transition: color 0.15s, border-color 0.15s;
 }
 .clear .ico { font-size: 12px; }
+.clear.icon-only { padding: 3px 7px; }
 .clear:hover { color: var(--stage-ink); border-color: var(--stage-muted); }
 
 .result .slot-label .num { color: var(--tungsten); }
@@ -917,6 +918,7 @@ dialog.viewer { width: min(980px, calc(100vw - 24px)); }
   .slot-label .en { display: none; }
   .slot-label strong { font-size: 13px; }
   .slot:not(.result) .slot-meta .name { display: none; }
+  .slot:not(.result) .slot-meta { flex-wrap: wrap; gap: 6px; }
   .slot:not(.result) .slot-empty > span:last-child { display: none; }
   .glyph { width: 38px; height: 38px; font-size: 17px; }
   .slot-frame { border-radius: 10px; }

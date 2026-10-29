@@ -774,6 +774,7 @@
           el('span', { text: t(`slot.pick.${s.id}`) })));
       const meta = el('div', { class: 'slot-meta' },
         el('span', { class: 'name', text: item ? displayName(item) : t('slot.none'), title: item ? item.path : null }),
+        item ? el('button', { class: 'clear icon-only', type: 'button', 'aria-label': t('slot.copy'), title: t('slot.copy'), onclick: () => copyImage(item) }, icon('copy')) : null,
         item ? el('button', { class: 'clear', onclick: () => { setSelected(s.id, null); renderSlots(); renderLibrary(); updatePrompt(); } }, icon('x'), t('slot.remove')) : null);
       host.replaceChildren(head, frame, meta);
     }
@@ -1114,6 +1115,27 @@
     a.download = `compose-${stamp}.${h.blob.type === 'image/jpeg' ? 'jpg' : 'png'}`;
     $('#viewerCopy').onclick = () => copy(h.prompt);
     $('#viewerDlg').showModal();
+  }
+
+  // 剪貼簿普遍只接受 PNG，其他格式先轉換
+  async function toPng(file) {
+    if (file.type === 'image/png') return file;
+    const bmp = await createImageBitmap(file);
+    const c = document.createElement('canvas');
+    c.width = bmp.width;
+    c.height = bmp.height;
+    c.getContext('2d').drawImage(bmp, 0, 0);
+    bmp.close();
+    return new Promise((resolve, reject) => c.toBlob((b) => (b ? resolve(b) : reject(new Error(t('status.copyImageFail')))), 'image/png'));
+  }
+  // 把 Promise 直接交給 ClipboardItem，讓 write 在點擊當下呼叫（Safari 需要）
+  async function copyImage(item) {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': toPng(item.file) })]);
+      setStatus(t('status.imageCopied'));
+    } catch (e) {
+      setStatus(t('status.copyImageFail'), true);
+    }
   }
 
   async function copy(text) {
