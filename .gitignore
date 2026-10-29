@@ -1,4 +1,4 @@
-# 不要 commit 素材：原站禁止或要求不要再分發
+# 素材原圖不 commit；內置圖庫只收錄網頁尺寸（images/，由 tools/build_library.py 產生）
 faces/
 poses/
 outfits/
@@ -7,5 +7,8 @@ materials/
 *.jpg
 *.jpeg
 *.webp
+*.part
 !docs/**
+!images/**/*.webp
 .DS_Store
+__pycache__/
