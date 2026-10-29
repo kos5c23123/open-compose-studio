@@ -1,0 +1,28 @@
+Open Compose Studio
+Copyright (c) 2026 Compose Studio contributors
+
+Code and documentation are licensed under the MIT License (see LICENSE).
+
+Built-in library (images/ and data/):
+
+Faces (images/face/, data "face")
+  From AI Model Face Database by あぎ (@agi_aibusi), https://ai-portrait-gallery.pages.dev/
+  Released by its author under CC0 1.0. Included here as web-size copies
+  (300 and 900 px wide WebP). Hair and style labels come from the same site.
+  The author asks that the images themselves not be redistributed; the full-size
+  originals are only on the author's site.
+
+Poses (images/pose/, data "pose")
+  Line art from Shisei 姿勢, https://github.com/wquguru/shisei (images CC0 1.0),
+  resized to web-size WebP. Shisei's ids (P001, U001, S001, D001) and its own
+  English pose descriptions (standard series) are kept. Shisei's pose names and
+  categories follow the pose catalog of ai-pose-gallery by ギア (@giaaibusi),
+  which Shisei credits but does not license, so they are not included here.
+
+Outfits (images/outfit/, data "outfit")
+  Made for this project with an AI image model from our own text prompts.
+  Dedicated to the public domain under CC0 1.0 (see LICENSE-images).
+
+All people shown are AI-generated adults or faceless mannequins and do not depict
+real people. Open Compose Studio is not affiliated with or endorsed by あぎ, ギア
+or the Shisei authors.

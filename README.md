@@ -1,23 +1,24 @@
-# Compose Studio (合成棚)
+# Compose Studio (AI 角色素材庫)
 
 **Face + outfit + pose = prompt.** Pick a face, an outfit and a pose, add scene options such as aspect ratio, shot size, camera angle and lighting, and send everything to an image model in one click. Compose Studio writes the prompt for you.
 
-**[Open Compose Studio](https://kos5c23123.github.io/open-compose-studio/)** · **[Watch the demo (48 s)](docs/demo.mp4)**
+**[Open Compose Studio](https://kos5c23123.github.io/open-compose-studio/)** · **[Watch the demo (39 s)](docs/demo.mp4)**
 
-[![Compose Studio: a face, an outfit and a pose combine into a prompt, and the generated image appears below](docs/screenshot.jpg)](docs/demo.mp4)
+[![The Library tab: filters on the left, the built-in outfits on the right, and the picked face, outfit and pose in the bar at the top](docs/screenshot.jpg)](docs/demo.mp4)
 
-<sub>The images in the screenshot and the demo are the author's own AI-generated images, not materials from the reference sites.</sub>
+<sub>The screenshot and the demo use the built-in library (CC0). The demo stops at the prompt; it does not show a generated image.</sub>
 
-Compose Studio is an **engine only**. It ships no images. You download reference materials from their original sites yourself and load them from your own disk. Images go straight from your device to the model you choose (a cloud API or your local ComfyUI) and never pass through any third-party server.
+Compose Studio comes with a **built-in library** of 1,499 faces, 280 poses (1,133 views) and 400 outfits, so you can start right away. You can also load your own materials from your disk. Images go straight from your device to the model you choose (a cloud API or your local ComfyUI) and never pass through any third-party server.
 
 The interface is available in Traditional Chinese and English. Use the 中 / EN switch in the top-right corner. Prompts can be written in English, Japanese or Chinese, chosen separately in the Prompt panel.
 
 ## Getting started
 
 1. Open **[kos5c23123.github.io/open-compose-studio](https://kos5c23123.github.io/open-compose-studio/)** in Chrome, Edge or Firefox. To run it locally instead, download or clone this repository and open `index.html` directly; no server or build step is needed. Either way, your images never leave your device except to go to the engine you choose.
-2. Download materials from the sites listed below and put each type in its own folder. In the app, choose **Load folder**.
+2. The built-in library loads by itself. To add your own images, put each type in its own folder and choose **Load folder**.
 3. Open **Settings**, pick an image engine and enter your API key or local address.
-4. Choose a face, an outfit and a pose. Pick a **quick look** (such as Studio portrait or Cinematic night) or fine-tune the scene in the Framing, Lens, Light, Setting and Subject tabs, then press **Generate**. Click any reading on the stage (for example `LENS 85mm`) to jump to that setting. When you scroll down, a floating bar keeps your picks and the Generate button in reach.
+4. The page has two tabs. In **Library**, browse the images with the filters on the left and click to pick a face, an outfit and a pose; your picks stay in the **Picked** bar at the top. Press **Go to Prompt** when you are ready. In **Prompt**, the stage shows your picks and the prompt; clicking a picked image takes you back to the library.
+5. In **Prompt**, pick a **quick look** (such as Studio portrait or Cinematic night) or fine-tune the scene in the Framing, Lens, Light, Setting and Subject tabs, then press **Generate**. Click any reading on the stage (for example `LENS 85mm`) to jump to that setting. When you scroll down, a floating bar keeps your picks and the Generate button in reach.
 
 The face, outfit and pose, together with the scene settings, make up the prompt; the generated image is only its output. The fourth frame on the stage shows the prompt itself (click it to copy the prompt; edit it in the Prompt panel below), and the image appears under the Generate button. The copy icon under each chosen face, outfit and pose copies that image, so you can paste it straight into another app. Open any earlier result and press **Use this composition** to bring back the face, outfit, pose, scene settings and prompt it was made from.
 
@@ -31,9 +32,33 @@ In Chrome and Edge, Compose Studio remembers the folders you load and the face, 
 
 Firefox and Safari cannot remember folders, so load them again after a reload. Images added with **Choose images**, and images renamed in **Organize**, are not remembered in any browser; export Organize results as a ZIP and load that folder instead.
 
-## Browsing by category
+## Built-in library
 
-The library reads the categories that are already in the downloaded file names, so no extra data is needed:
+| Type | Count | Source | License |
+|---|---:|---|---|
+| Faces | 1,499 (893 face, 606 styling) | [AIモデル顔データベース](https://ai-portrait-gallery.pages.dev/) by あぎ ([@agi_aibusi](https://x.com/agi_aibusi)) | CC0 |
+| Poses | 280 poses, 1,133 views | [Shisei 姿勢](https://github.com/wquguru/shisei) line art | CC0 |
+| Outfits | 400 women's outfits (`CS-SPR-0001` …) | Made for this project from our own prompts | CC0 |
+
+- The repository holds web-size WebP copies: `images/<type>/w300/` for thumbnails and `images/<type>/w900/` for the image sent to the model or copied. The full-size originals stay on each source's own site.
+- `data/catalog.json` is the source of truth: ids, categories, descriptions, ratings and files. `data/library.js` holds the same data as a script so the page also works from `file://`.
+- Browsing categories are our own: outfits by season, garment (dress, skirt, trousers, shorts, outerwear, knitwear, set) and color, read from our outfit descriptions; poses by series, action (for example standing, sitting, kneeling, hand sign, lift) and angle, classified by eye; faces by face or styling, hair length and hair features (bob, layered, wavy, straight, wolf cut, bangs, colored), with the hairstyle names translated into Chinese and English. The tag data is in `tools/tags/` and `tools/library_tags.py`; run `python3 tools/build_library.py --retag` after editing it.
+- Lingerie, swimwear and sexy outfits, and the poses Shisei rates as suggestive, are hidden until you turn on **Show suggestive** in the library.
+- **Clear** removes the built-in images of that type for good (also after a reload); **Use the built-in library** brings them back.
+- When the page is opened from `file://`, browsing works but sending or copying a built-in image needs the online version or a local server (`python3 -m http.server`), because browsers block reading local files from a page.
+
+Poses keep Shisei's ids and, for the standard series, its English descriptions. Shisei's pose names and categories follow the list of [ai-pose-gallery](https://ai-pose-gallery.pages.dev/) by ギア ([@giaaibusi](https://x.com/giaaibusi)), which Shisei credits but does not license, so they are left out. The face author asks that the images themselves not be redistributed; they are included here as web-size copies. Details are in [NOTICE](NOTICE).
+
+To rebuild the library from source folders on your own machine:
+
+```bash
+python3 tools/build_library.py --faces DIR --shisei DIR --outfits DIR --outfit-prompts FILE
+python3 -I tools/verify_library.py    # checks that the catalog, library.js and images agree
+```
+
+## Browsing your own downloads by category
+
+The filters sit in the left column of the **Library** tab. For images you load yourself, the library reads the categories that are already in the downloaded file names, so no extra data is needed:
 
 - **Poses** (`full_single_P001_front.png`): filter by series (full body standard, full body glamour, upper body, two people) and by angle (front, high, low, side, three-quarter). The **By pose** view groups the five angles of each pose into one card; hover an angle to preview it and click to choose it. **Each image** shows every file separately.
 - **Faces** (`ai-face-….png`, `ai-styling-….png`): filter by face or styling images.
@@ -45,11 +70,11 @@ To also filter by the original sites' pose categories, pose names and hairstyles
 - Outfits: open [ai-costume-gallery.pages.dev](https://ai-costume-gallery.pages.dev/), save the page with Ctrl+S (⌘S on Mac) and choose the saved HTML file. Only the keywords are read; the categories already come from the file names.
 - Faces: open [ai-portrait-gallery.pages.dev/data/images.js](https://ai-portrait-gallery.pages.dev/data/images.js), save it and choose the file.
 
-You can also drop those files into your materials folder; they are picked up automatically when you load the folder. The catalog is parsed in your browser and kept in its localStorage. This repository does not include any data from the original sites.
+You can also drop those files into your materials folder; they are picked up automatically when you load the folder. The catalog is parsed in your browser and kept in its localStorage. Apart from the built-in library's face hair and style labels (CC0, see [NOTICE](NOTICE)), this repository does not include any data from the original sites.
 
 ## Material sources and rules
 
-Compose Studio does not rehost any materials. Download them from the original sites and follow each site's rules:
+You can also load materials from these sites yourself. Follow each site's rules:
 
 | Type | Source | Author | Key rules |
 |---|---|---|---|
@@ -59,7 +84,7 @@ Compose Studio does not rehost any materials. Download them from the original si
 
 This summary is taken from the original sites. The latest version on each site prevails.
 
-**Do not commit materials to this repository.** `.gitignore` already excludes the `faces/`, `poses/`, `outfits/` and `materials/` folders and all image files, so those folders are a safe place to keep your downloads.
+**Do not commit downloaded materials to this repository.** `.gitignore` excludes the `faces/`, `poses/`, `outfits/` and `materials/` folders and all image files outside `images/` and `docs/`, so those folders are a safe place to keep your downloads.
 
 ## Organizing your own materials
 
@@ -120,6 +145,11 @@ index.html              Markup, styles and the SVG icon sprite
 js/i18n.js              Interface strings (Traditional Chinese, English) and translation helpers
 js/catalog.js           File-name parsing and optional catalog import for categories
 js/library-store.js     Remembers loaded folders across reloads (Chrome and Edge)
+js/builtin.js           Loads the built-in library
+data/catalog.json       Built-in library catalog (source of truth)
+data/library.js         The same catalog as a script (generated)
+images/                 Built-in library images, w300 and w900 WebP
+tools/                  build_library.py, library_tags.py (browsing tags), tags/, verify_library.py
 js/organizer.js         Organize dialog for naming your own materials
 js/zip.js               Minimal ZIP writer used by the export
 js/presets.js           Scene options (edit this file to add options)
@@ -171,4 +201,4 @@ Use only fictional people as materials. Do not use this tool to depict or impers
 
 ## License
 
-The code is released under the MIT License (see `LICENSE`). The license covers only the code in this repository, not any third-party materials.
+The code is released under the MIT License (see `LICENSE`). The built-in library images are CC0 1.0 (see `LICENSE-images`). See `NOTICE` for each source.

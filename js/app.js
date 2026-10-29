@@ -38,6 +38,8 @@
   // 舞台頂部的鏡頭讀數
   const READOUT = [['aspect', 'AR'], ['shot', 'SHOT'], ['lens', 'LENS'], ['aperture', 'F'], ['light', 'LIGHT'], ['style', 'STYLE']];
   const PAGE = 120;
+  // 姿勢分類多於此數時改用下拉選單
+  const MAX_CAT_TABS = 20;
   const STORE_KEY = 'compose-studio:v1';
   const L = E.library;
 
@@ -71,6 +73,11 @@
       lang: 'en',
       keepHair: true,
       remember: false,
+      showSuggestive: false,
+      // 目前的分頁：library（素材庫）或 prompt
+      page: 'library',
+      // 按「清除」後不再自動載入該類內置圖庫，直至再按「使用內置圖庫」
+      builtinOff: {},
       opts: {},
       selected: {},
       engines: {},
@@ -130,6 +137,8 @@
   function setUiLang(id) {
     I.set(id);
     state.prefs.uiLang = I.lang;
+    // 內置姿勢的分類名稱會跟語言轉換，舊的篩選值不再適用
+    state.filter.pose.cat = '';
     savePrefs();
     applyStatic();
     renderTabs();
@@ -226,7 +235,7 @@
 
   // ---------- 素材庫 ----------
   function emptyFilter() {
-    return { folder: '', q: '', series: '', cat: '', angle: '', section: '', hair: '', view: 'pose' };
+    return { folder: '', q: '', series: '', cat: '', angle: '', section: '', hair: '', view: 'pose', type: '', color: '', tag: '' };
   }
 
   // 素材以 { file, path } 表示；由 <input> 取得的 File 以 webkitRelativePath（或檔名）作為 path
@@ -325,13 +334,62 @@
     state.pendingFolders = state.pendingFolders.filter((p) => p.slot !== slot);
     renderRestoreBar();
     if (L.canRemember) L.forget(slot).catch((e) => setStatus(e.message || String(e), true));
+    state.prefs.builtinOff = { ...state.prefs.builtinOff, [slot]: true };
+    savePrefs();
     renderTabs();
     renderLibrary();
   }
 
+  const isBuiltin = (item) => !!item.src;
+
+  // 加入內置圖庫的素材（已有的不重複加入）
+  function addBuiltinItems(slot, items) {
+    const seen = new Set(state.libs[slot].map((i) => i.id));
+    const fresh = items.filter((i) => !seen.has(i.id));
+    state.libs[slot] = [...state.libs[slot], ...fresh]
+      .sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
+    state.page[slot] = 1;
+    return fresh.length;
+  }
+
+  // slots：要載入的類別；由按鈕觸發時同時取消「不自動載入」
+  async function loadBuiltin(slots, fromClick) {
+    let lib;
+    try {
+      lib = await E.builtin.load();
+    } catch (e) {
+      setStatus(e.message || String(e), true);
+      return;
+    }
+    const items = E.builtin.toItems(lib);
+    // 自動載入期間按了「清除」的類別不再加入
+    const wanted = fromClick ? slots : slots.filter((slot) => !state.prefs.builtinOff[slot]);
+    for (const slot of wanted) {
+      addBuiltinItems(slot, items[slot]);
+      if (fromClick) state.prefs.builtinOff = { ...state.prefs.builtinOff, [slot]: false };
+    }
+    if (fromClick) savePrefs();
+    setStatus(t('status.libLoaded', { f: lib.face.length, p: lib.pose.length, o: lib.outfit.length }));
+    renderTabs();
+    reselect();
+  }
+
   function fullUrl(item) {
+    if (isBuiltin(item)) return item.src;
     if (!item.url) item.url = URL.createObjectURL(item.file);
     return item.url;
+  }
+
+  // 內置圖庫的圖片在需要時才下載，之後重用
+  function itemFile(item) {
+    if (item.file) return Promise.resolve(item.file);
+    if (!item.fileJob) {
+      item.fileJob = fetch(item.src)
+        .then((res) => (res.ok ? res.blob() : Promise.reject(new Error(String(res.status)))))
+        .then((b) => { item.file = new File([b], `${item.name}.webp`, { type: b.type || 'image/webp' }); return item.file; })
+        .catch((e) => { item.fileJob = null; throw new Error(t('status.libFetchFail'), { cause: e }); });
+    }
+    return item.fileJob;
   }
 
   // 縮圖：只在圖片接近可見範圍時才製作，約 320px 闊的 JPEG，製作後快取
@@ -350,6 +408,7 @@
     : null;
   function setThumb(img, item) {
     img.thumbItem = item;
+    if (item.thumbSrc) { img.loading = 'lazy'; img.src = item.thumbSrc; return; }
     if (item.thumb) { img.src = item.thumb; return; }
     img.removeAttribute('src');
     if (thumbObserver) thumbObserver.observe(img);
@@ -413,10 +472,15 @@
     } else if (i && i.kind === 'outfit') {
       parts.push(C.outfitMeta(i).keywords, C.outfitName(i.code));
     }
+    const tags = item.tags || {};
+    for (const [prefix, list] of [['type', tags.types], ['color', tags.colors], ['hairtag', tags.hair]]) {
+      for (const v of list || []) parts.push(t(`${prefix}.${v}`));
+    }
     return parts.join(' ').toLowerCase();
   }
   // skip：計算某個篩選項目的數量時，忽略該項目本身
   function matches(slot, item, f, skip) {
+    if (item.suggestive && !state.prefs.showSuggestive) return false;
     if (skip !== 'folder' && f.folder && item.folder !== f.folder) return false;
     if (slot === 'pose') {
       if (skip !== 'series' && f.series && seriesOf(item) !== f.series) return false;
@@ -425,10 +489,13 @@
     }
     if (slot === 'outfit') {
       if (skip !== 'cat' && f.cat && codeOf(item) !== f.cat) return false;
+      if (skip !== 'type' && f.type && !tagsOf(item, 'types').includes(f.type)) return false;
+      if (skip !== 'color' && f.color && !tagsOf(item, 'colors').includes(f.color)) return false;
     }
     if (slot === 'face') {
       if (skip !== 'section' && f.section && sectionOf(item) !== f.section) return false;
       if (skip !== 'hair' && f.hair && C.faceMeta(item.info).hair !== f.hair) return false;
+      if (skip !== 'tag' && f.tag && !tagsOf(item, 'hair').includes(f.tag)) return false;
     }
     const needle = f.q.trim().toLowerCase();
     return !needle || searchText(item).includes(needle);
@@ -436,6 +503,13 @@
   function filtered(slot, skip) {
     const f = state.filter[slot];
     return state.libs[slot].filter((i) => matches(slot, i, f, skip));
+  }
+  // 內置圖庫的標籤（款式、顏色、髮型）；其他圖片沒有標籤
+  const tagsOf = (item, key) => (item.tags && item.tags[key]) || [];
+  function countTags(list, key) {
+    const m = new Map();
+    for (const i of list) for (const k of tagsOf(i, key)) m.set(k, (m.get(k) || 0) + 1);
+    return m;
   }
   function countBy(list, keyOf) {
     const m = new Map();
@@ -505,6 +579,46 @@
     renderSlots();
   }
 
+  // ---------- 分頁：素材庫 / Prompt ----------
+  function setPage(page) {
+    state.prefs.page = page === 'prompt' ? 'prompt' : 'library';
+    savePrefs();
+    renderPage();
+    window.scrollTo({ top: 0 });
+  }
+  function renderPage() {
+    const page = state.prefs.page;
+    $('#pageLibrary').hidden = page !== 'library';
+    $('#pagePrompt').hidden = page !== 'prompt';
+    document.querySelectorAll('.page-tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.page === page)));
+    if (page === 'library') $('#dock').hidden = true;
+    else requestAnimationFrame(updateDock);
+  }
+  // 由 Prompt 分頁的格子或浮動列跳去素材庫的某一類
+  function openLibrary(slot) {
+    setTab(slot);
+    setPage('library');
+  }
+
+  // 素材庫頂部的「已揀」：三格縮圖，撳縮圖切換類別，撳 x 取消
+  function renderPicked() {
+    const picks = SLOTS.map((s) => {
+      const item = state.selected[s.id];
+      return el('div', { class: `pick${state.tab === s.id ? ' on' : ''}` },
+        el('button', { class: 'thumb', type: 'button', 'aria-label': slotLabel(s.id), onclick: () => setTab(s.id) },
+          item ? el('img', { src: item.thumbSrc || fullUrl(item), alt: '' }) : icon(s.id)),
+        el('div', { class: 'txt' }, el('strong', { text: slotLabel(s.id) }),
+          el('span', { text: item ? displayName(item) : t('slot.none'), title: item ? displayName(item) : '' })),
+        item ? el('button', {
+          class: 'x', type: 'button', 'aria-label': t('slot.remove'), title: t('slot.remove'),
+          onclick: () => { setSelected(s.id, null); renderSlots(); if (redrawGrid && state.tab === s.id) redrawGrid(); updatePrompt(); }
+        }, icon('x')) : null);
+    });
+    $('#picked').replaceChildren(el('span', { class: 'kicker', text: t('picked.title') }), ...picks,
+      el('button', { class: 'btn primary pick-go', type: 'button', disabled: !SLOTS.some((s) => state.selected[s.id]), onclick: () => setPage('prompt') },
+        icon('sparkle'), t('picked.go')));
+  }
+
   // 篩選列的元件
   function facetTabs(label, entries, value, onPick) {
     return el('div', { class: 'ftabs', role: 'group', 'aria-label': label }, ...entries.map(([v, text, n]) => el('button', {
@@ -519,24 +633,145 @@
 
   let redrawGrid = null;
 
+  // 內置圖庫的性感內容預設隱藏
+  function suggestiveToggle() {
+    const box = el('input', { type: 'checkbox', checked: !!state.prefs.showSuggestive });
+    box.addEventListener('change', () => {
+      state.prefs.showSuggestive = box.checked;
+      savePrefs();
+      state.page[state.tab] = 1;
+      renderLibrary();
+    });
+    return el('label', { class: 'check small' }, box, t('lib.showSuggestive'));
+  }
+
+  // ---------- 素材庫左欄的篩選 ----------
+  const fgroup = (label, ...kids) => el('div', { class: 'fgroup' }, el('h4', { text: label }), ...kids);
+  // 多值標籤（款式、顏色、髮型）的篩選按鈕；swatch 為顏色圓點
+  function tagFacet(slot, key, prefix, field, f, rerender, swatch) {
+    const counts = countTags(filtered(slot, field), key);
+    // 沒有圖片帶這類標籤（例如只剩自己載入的圖片）時，清除舊的篩選，以免全部被篩走
+    if (!counts.size) { f[field] = ''; return null; }
+    const keys = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
+    return fgroup(t(`lib.${field}`), el('div', { class: 'ftabs', role: 'group', 'aria-label': t(`lib.${field}`) },
+      ...[['', t('lib.all'), null], ...keys.map((k) => [k, t(`${prefix}.${k}`), counts.get(k)])].map(([v, text, n]) => el('button', {
+        class: 'ftab', 'aria-pressed': String(f[field] === v), onclick: () => { f[field] = v; rerender(); }
+      }, swatch && v ? el('span', { class: 'swatch', style: `background:${COLOR_SWATCH[v] || 'transparent'}` }) : null,
+        text, n != null ? el('span', { class: 'n', text: String(n) }) : null))));
+  }
+  const COLOR_SWATCH = {
+    black: '#1d1d1f', white: '#f6f3ea', brown: '#8a5a3b', grey: '#9a9a9a', blue: '#3c64b4', green: '#4f8a4f',
+    red: '#b8343a', pink: '#e79bb5', orange: '#e0813a', yellow: '#e8c547', purple: '#8a62b5'
+  };
+
+  function poseFacets(slot, lib, f, rerender) {
+    if (!lib.some((i) => seriesOf(i))) return [];
+    const rows = [];
+    const bySeries = countBy(filtered(slot, 'series'), seriesOf);
+    const present = [...new Set(lib.map(seriesOf).filter(Boolean))]
+      .sort((a, b) => ((C.SERIES.indexOf(a) + 1 || 99) - (C.SERIES.indexOf(b) + 1 || 99)));
+    rows.push(fgroup(t('lib.series'), facetTabs(t('lib.series'), [['', t('lib.all'), filtered(slot, 'series').length],
+      ...present.map((s) => [s, C.seriesName(s), bySeries.get(s) || 0])], f.series, (v) => { f.series = v; f.cat = ''; rerender(); })));
+    const cats = [...countBy(filtered(slot, 'cat'), (i) => C.poseMeta(i.info).cat)].filter(([c]) => c)
+      .sort((a, b) => b[1] - a[1]);
+    if (cats.length > MAX_CAT_TABS) {
+      const sel = el('select', { class: 'pill-select', 'aria-label': t('lib.cat') },
+        el('option', { value: '', text: t('lib.allCats') }),
+        ...cats.map(([c, n]) => el('option', { value: c, text: `${c}（${n}）`, selected: f.cat === c })));
+      sel.addEventListener('change', () => { f.cat = sel.value; rerender(); });
+      rows.push(fgroup(t('lib.cat'), sel));
+    } else if (cats.length) {
+      rows.push(fgroup(t('lib.cat'), facetTabs(t('lib.cat'), [['', t('lib.allCats'), null], ...cats.map(([c, n]) => [c, c, n])],
+        f.cat, (v) => { f.cat = v; rerender(); })));
+    }
+    rows.push(fgroup(t('lib.angle'), segmented(t('lib.angle'), [['', t('lib.allAngles')], ...C.ANGLES.map((a) => [a, t(`angle.${a}`)])], f.angle, (v) => { f.angle = v; rerender(); })),
+      fgroup(t('lib.view'), segmented(t('lib.view'), [['pose', t('lib.view.pose')], ['card', t('lib.view.card')]], f.view, (v) => { f.view = v; rerender(); })));
+    return rows;
+  }
+
+  function outfitFacets(slot, lib, f, rerender) {
+    if (!lib.some(codeOf)) return [];
+    const byCode = countBy(filtered(slot, 'cat'), codeOf);
+    const present = C.OUTFIT_CODES.filter((c) => byCode.has(c));
+    return [
+      fgroup(t('lib.cat'), facetTabs(t('lib.cat'), [['', t('lib.all'), filtered(slot, 'cat').length],
+        ...present.map((c) => [c, C.outfitName(c), byCode.get(c) || 0])], f.cat, (v) => { f.cat = v; rerender(); })),
+      tagFacet(slot, 'types', 'type', 'type', f, rerender, false),
+      tagFacet(slot, 'colors', 'color', 'color', f, rerender, true)
+    ].filter(Boolean);
+  }
+
+  function faceFacets(slot, lib, f, rerender) {
+    const rows = [];
+    if (lib.some((i) => i.info && i.info.kind === 'face')) {
+      const bySec = countBy(filtered(slot, 'section'), sectionOf);
+      const secs = [...C.SECTIONS, 'other'].filter((s) => lib.some((i) => sectionOf(i) === s));
+      rows.push(fgroup(t('lib.section'), facetTabs(t('lib.section'), [['', t('lib.all'), filtered(slot, 'section').length],
+        ...secs.map((s) => [s, t(`section.${s}`), bySec.get(s) || 0])], f.section, (v) => { f.section = v; rerender(); })));
+    }
+    const byHair = countBy(filtered(slot, 'hair'), (i) => C.faceMeta(i.info).hair);
+    const hairs = [...byHair.keys()].filter(Boolean)
+      .sort((a, b) => ((C.HAIRS.indexOf(a) + 1 || 99) - (C.HAIRS.indexOf(b) + 1 || 99)));
+    if (hairs.length) {
+      rows.push(fgroup(t('lib.hair'), facetTabs(t('lib.hair'), [['', t('lib.allHair'), null], ...hairs.map((h) => [h, C.hairName(h), byHair.get(h)])],
+        f.hair, (v) => { f.hair = v; rerender(); })));
+    }
+    const tags = tagFacet(slot, 'hair', 'hairtag', 'tag', f, rerender, false);
+    return tags ? [...rows, tags] : rows;
+  }
+
+  function buildFacets(slot, lib, f, rerender) {
+    const rows = slot === 'pose' ? poseFacets(slot, lib, f, rerender)
+      : slot === 'outfit' ? outfitFacets(slot, lib, f, rerender) : faceFacets(slot, lib, f, rerender);
+    const folders = [...new Set(lib.map((i) => i.folder).filter(Boolean))];
+    if (folders.length > 1) {
+      const sel = el('select', { class: 'pill-select', 'aria-label': t('lib.folder') },
+        el('option', { value: '', text: t('lib.allFolders') }),
+        ...folders.map((name) => el('option', { value: name, text: name, selected: f.folder === name })));
+      sel.addEventListener('change', () => { f.folder = sel.value; rerender(); });
+      rows.push(fgroup(t('lib.folder'), sel));
+    }
+    return rows;
+  }
+
+  // 素材庫未有圖片時的說明及按鈕
+  function emptyLibrary(slot) {
+    const meta = SLOTS.find((s) => s.id === slot);
+    const desc = el('p', {}, t('lib.dl.before'), el('a', { href: meta.source, target: '_blank', rel: 'noopener', text: meta.sourceName }), t('lib.dl.after'),
+      slot === 'outfit' ? ` ${t('lib.outfitText')}` : '');
+    return el('div', { class: 'empty' },
+      el('div', { class: 'glyph-lg' }, icon(slot)),
+      el('h3', { text: t(`lib.empty.${slot}`) }),
+      desc,
+      el('div', { class: 'actions' },
+        el('button', { class: 'btn primary', onclick: () => loadBuiltin([slot], true) }, icon('images'), t('lib.useBuiltin')),
+        el('button', { class: 'btn', onclick: () => pickFolder(slot) }, icon('folder'), t('lib.loadFolder')),
+        el('button', { class: 'btn', onclick: () => pickFiles(slot) }, icon('images'), t('lib.pickFiles')),
+        slot !== 'outfit' ? el('button', { class: 'btn', onclick: () => E.organizer.open(slot) }, icon('edit'), t('org.openOwn')) : null));
+  }
+
+  function libToolbar(slot, lib, search) {
+    return el('div', { class: 'toolbar' },
+      el('label', { class: 'search' }, icon('search'), search),
+      el('button', { class: 'btn small', onclick: () => pickFolder(slot) }, icon('folder-plus'), t('lib.addFolder')),
+      // 已清除內置圖庫，或者只剩由歷史紀錄加回的個別圖片時，都可以再載入
+      state.prefs.builtinOff[slot] || !lib.some(isBuiltin)
+        ? el('button', { class: 'btn small', onclick: () => loadBuiltin([slot], true) }, icon('images'), t('lib.useBuiltin')) : null,
+      slot !== 'outfit' ? el('button', { class: 'btn small', onclick: () => E.organizer.open(slot) }, icon('edit'), t('org.open')) : null,
+      el('button', { class: 'btn small', onclick: openMeta }, icon('tag'), t('lib.meta')),
+      el('button', { class: 'btn small ghost', onclick: () => clearLibrary(slot) }, icon('trash'), t('lib.clear')),
+      lib.some((i) => i.suggestive) ? suggestiveToggle() : null);
+  }
+
   function renderLibrary() {
     const slot = state.tab;
-    const meta = SLOTS.find((s) => s.id === slot);
     const box = $('#library');
     const lib = state.libs[slot];
     redrawGrid = null;
 
     if (!lib.length) {
-      const desc = el('p', {}, t('lib.dl.before'), el('a', { href: meta.source, target: '_blank', rel: 'noopener', text: meta.sourceName }), t('lib.dl.after'),
-        slot === 'outfit' ? ` ${t('lib.outfitText')}` : '');
-      box.replaceChildren(el('div', { class: 'empty' },
-        el('div', { class: 'glyph-lg' }, icon(slot)),
-        el('h3', { text: t(`lib.empty.${slot}`) }),
-        desc,
-        el('div', { class: 'actions' },
-          el('button', { class: 'btn primary', onclick: () => pickFolder(slot) }, icon('folder'), t('lib.loadFolder')),
-          el('button', { class: 'btn', onclick: () => pickFiles(slot) }, icon('images'), t('lib.pickFiles')),
-          slot !== 'outfit' ? el('button', { class: 'btn', onclick: () => E.organizer.open(slot) }, icon('edit'), t('org.openOwn')) : null)));
+      box.replaceChildren(emptyLibrary(slot));
+      $('#libFacets').replaceChildren();
       return;
     }
 
@@ -544,72 +779,10 @@
     const rerender = () => { state.page[slot] = 1; renderLibrary(); };
     const search = el('input', { type: 'search', placeholder: t(`lib.searchPh.${slot}`), value: f.q, 'aria-label': t('lib.search') });
     search.addEventListener('input', () => { f.q = search.value; state.page[slot] = 1; renderGrid(); });
+    const toolbar = libToolbar(slot, lib, search);
 
-    const toolbar = el('div', { class: 'toolbar' },
-      el('label', { class: 'search' }, icon('search'), search),
-      el('button', { class: 'btn small', onclick: () => pickFolder(slot) }, icon('folder-plus'), t('lib.addFolder')),
-      slot !== 'outfit' ? el('button', { class: 'btn small', onclick: () => E.organizer.open(slot) }, icon('edit'), t('org.open')) : null,
-      el('button', { class: 'btn small', onclick: openMeta }, icon('tag'), t('lib.meta')),
-      el('button', { class: 'btn small ghost', onclick: () => clearLibrary(slot) }, icon('trash'), t('lib.clear')));
+    const rows = buildFacets(slot, lib, f, rerender);
 
-    // 依素材類型建立篩選列
-    const rows = [];
-    if (slot === 'pose') {
-      const parsed = lib.some((i) => seriesOf(i));
-      if (parsed) {
-        const bySeries = countBy(filtered(slot, 'series'), seriesOf);
-        const present = [...new Set(lib.map(seriesOf).filter(Boolean))]
-          .sort((a, b) => ((C.SERIES.indexOf(a) + 1 || 99) - (C.SERIES.indexOf(b) + 1 || 99)));
-        rows.push(facetTabs(t('lib.series'), [['', t('lib.all'), filtered(slot, 'series').length],
-          ...present.map((s) => [s, C.seriesName(s), bySeries.get(s) || 0])], f.series, (v) => { f.series = v; f.cat = ''; rerender(); }));
-
-        const line = el('div', { class: 'frow' });
-        const cats = [...countBy(filtered(slot, 'cat'), (i) => C.poseMeta(i.info).cat)].filter(([c]) => c)
-          .sort((a, b) => a[0].localeCompare(b[0], 'ja'));
-        if (cats.length) {
-          const sel = el('select', { class: 'pill-select', 'aria-label': t('lib.cat') },
-            el('option', { value: '', text: t('lib.allCats') }),
-            ...cats.map(([c, n]) => el('option', { value: c, text: `${c}（${n}）`, selected: f.cat === c })));
-          sel.addEventListener('change', () => { f.cat = sel.value; rerender(); });
-          line.append(sel);
-        }
-        line.append(
-          segmented(t('lib.angle'), [['', t('lib.allAngles')], ...C.ANGLES.map((a) => [a, t(`angle.${a}`)])], f.angle, (v) => { f.angle = v; rerender(); }),
-          segmented(t('lib.view'), [['pose', t('lib.view.pose')], ['card', t('lib.view.card')]], f.view, (v) => { f.view = v; rerender(); }));
-        rows.push(line);
-      }
-    }
-    if (slot === 'outfit' && lib.some(codeOf)) {
-      const byCode = countBy(filtered(slot, 'cat'), codeOf);
-      const present = C.OUTFIT_CODES.filter((c) => byCode.has(c) || lib.some((i) => codeOf(i) === c));
-      rows.push(facetTabs(t('lib.cat'), [['', t('lib.all'), filtered(slot, 'cat').length],
-        ...present.map((c) => [c, C.outfitName(c), byCode.get(c) || 0])], f.cat, (v) => { f.cat = v; rerender(); }));
-    }
-    if (slot === 'face' && lib.some((i) => i.info && i.info.kind === 'face')) {
-      const bySec = countBy(filtered(slot, 'section'), sectionOf);
-      const secs = [...C.SECTIONS, 'other'].filter((s) => lib.some((i) => sectionOf(i) === s));
-      rows.push(facetTabs(t('lib.section'), [['', t('lib.all'), filtered(slot, 'section').length],
-        ...secs.map((s) => [s, t(`section.${s}`), bySec.get(s) || 0])], f.section, (v) => { f.section = v; rerender(); }));
-    }
-    if (slot === 'face') {
-      const byHair = countBy(filtered(slot, 'hair'), (i) => C.faceMeta(i.info).hair);
-      const hairs = [...byHair.keys()].filter(Boolean)
-        .sort((a, b) => ((C.HAIRS.indexOf(a) + 1 || 99) - (C.HAIRS.indexOf(b) + 1 || 99)));
-      if (hairs.length) {
-        rows.push(facetTabs(t('lib.hair'), [['', t('lib.allHair'), null], ...hairs.map((h) => [h, C.hairName(h), byHair.get(h)])],
-          f.hair, (v) => { f.hair = v; rerender(); }));
-      }
-    }
-    const folders = [...new Set(lib.map((i) => i.folder).filter(Boolean))];
-    if (folders.length > 1) {
-      const sel = el('select', { class: 'pill-select', 'aria-label': t('lib.folder') },
-        el('option', { value: '', text: t('lib.allFolders') }),
-        ...folders.map((name) => el('option', { value: name, text: name, selected: f.folder === name })));
-      sel.addEventListener('change', () => { f.folder = sel.value; rerender(); });
-      rows.push(el('div', { class: 'frow' }, sel));
-    }
-
-    const facets = el('div', { class: 'facets' }, ...rows);
     const countLine = el('div', { class: 'shown', id: 'shownCount' });
     const grid = el('div', { class: 'grid', id: 'grid' });
     const more = el('div', { class: 'more', id: 'more' });
@@ -617,7 +790,8 @@
     const banner = loose.length ? el('div', { class: 'banner' }, icon('tag'),
       el('span', { text: t('org.unrecognized', { n: loose.length }) }),
       el('button', { class: 'btn small', onclick: () => E.organizer.open(slot, unsorted(slot)) }, t('org.fix'))) : null;
-    box.replaceChildren(el('div', { class: 'lib-head' }, toolbar, banner, rows.length ? facets : null, countLine), grid, more);
+    $('#libFacets').replaceChildren(...rows);
+    box.replaceChildren(el('div', { class: 'lib-head' }, toolbar, banner, countLine), grid, more);
     redrawGrid = renderGrid;
     renderGrid();
 
@@ -766,7 +940,7 @@
       const frame = el('button', {
         class: `slot-frame${item ? ' filled' : ''}${state.tab === s.id ? ' active' : ''}`,
         'aria-label': t('slot.aria', { label, name: item ? displayName(item) : t('slot.none') }),
-        onclick: () => setTab(s.id)
+        onclick: () => openLibrary(s.id)
       }, item
         ? el('img', { src: fullUrl(item), alt: '' })
         : el('span', { class: 'slot-empty' },
@@ -778,6 +952,7 @@
         item ? el('button', { class: 'clear', onclick: () => { setSelected(s.id, null); renderSlots(); renderLibrary(); updatePrompt(); } }, icon('x'), t('slot.remove')) : null);
       host.replaceChildren(head, frame, meta);
     }
+    renderPicked();
     updateGenerateButton();
   }
 
@@ -916,20 +1091,24 @@
       return el('button', {
         type: 'button', class: 'dock-slot', title: slotLabel(s.id),
         'aria-label': t('slot.aria', { label: slotLabel(s.id), name: item ? displayName(item) : t('slot.none') }),
-        onclick: () => { setTab(s.id); document.querySelector('.lib-panel').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+        onclick: () => openLibrary(s.id)
       }, item ? el('img', { src: fullUrl(item), alt: '' }) : icon(s.id));
     }));
     $('#dockStatus').textContent = $('#status').textContent;
     $('#dockGo').disabled = $('#generate').disabled;
     dock.classList.toggle('busy', !!state.abort);
   }
+  // 生成列大部分不在畫面內時顯示浮動列；切換到 Prompt 分頁時 IntersectionObserver 未必觸發，所以亦會直接計算
+  const DOCK_SHOW_BELOW = 0.6;
+  function updateDock() {
+    const r = $('.actionbar').getBoundingClientRect();
+    const seen = r.height ? Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0)) / r.height : 0;
+    $('#dock').hidden = state.prefs.page !== 'prompt' || seen > DOCK_SHOW_BELOW;
+    if (!$('#dock').hidden) renderDock();
+  }
   function watchDock() {
     if (!('IntersectionObserver' in window)) return;
-    new IntersectionObserver((entries) => {
-      const e = entries[0];
-      $('#dock').hidden = e.isIntersecting && e.intersectionRatio > 0.6;
-      if (!$('#dock').hidden) renderDock();
-    }, { threshold: [0, 0.6, 1] }).observe($('.actionbar'));
+    new IntersectionObserver(updateDock, { threshold: [0, DOCK_SHOW_BELOW, 1] }).observe($('.actionbar'));
   }
 
   // ---------- Prompt ----------
@@ -1018,7 +1197,7 @@
 
     try {
       const images = [];
-      for (const r of refs) images.push({ role: r.role, ...(await prepareImage(r.item.file)) });
+      for (const r of refs) images.push({ role: r.role, ...(await prepareImage(await itemFile(r.item))) });
       const blobs = await adapter.generate({
         prompt, images, aspect,
         size: E.sizeFor(aspect),
@@ -1075,7 +1254,10 @@
     const c = h.composition;
     for (const s of SLOTS) {
       const used = c.refs[s.id];
-      if (used && !state.libs[s.id].some((i) => i.id === used.id)) addItems(s.id, [{ file: used.file, path: used.path }]);
+      if (used && !state.libs[s.id].some((i) => i.id === used.id)) {
+        if (isBuiltin(used)) addBuiltinItems(s.id, [used]);
+        else addItems(s.id, [{ file: used.file, path: used.path }]);
+      }
       setSelected(s.id, used ? state.libs[s.id].find((i) => i.id === used.id) || null : null);
     }
     state.prefs.opts = JSON.parse(JSON.stringify(c.opts));
@@ -1118,7 +1300,9 @@
   }
 
   // 剪貼簿普遍只接受 PNG，其他格式先轉換
-  async function toPng(file) {
+  // fileOrJob：File 或會得到 File 的 Promise
+  async function toPng(fileOrJob) {
+    const file = await fileOrJob;
     if (file.type === 'image/png') return file;
     const bmp = await createImageBitmap(file);
     const c = document.createElement('canvas');
@@ -1131,7 +1315,7 @@
   // 把 Promise 直接交給 ClipboardItem，讓 write 在點擊當下呼叫（Safari 需要）
   async function copyImage(item) {
     try {
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': toPng(item.file) })]);
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': toPng(itemFile(item)) })]);
       setStatus(t('status.imageCopied'));
     } catch (e) {
       setStatus(t('status.copyImageFail'), true);
@@ -1211,6 +1395,7 @@
     $('#lang').value = state.prefs.lang;
     $('#keepHair').checked = !!state.prefs.keepHair;
 
+    renderPage();
     renderTabs();
     renderLibrary();
     renderSlots();
@@ -1219,6 +1404,7 @@
     renderEngineName();
     updatePrompt(true);
     watchDock();
+    document.querySelectorAll('.page-tab').forEach((b) => b.addEventListener('click', () => setPage(b.dataset.page)));
 
     document.querySelectorAll('.lang-switch [data-lang]').forEach((b) => {
       b.addEventListener('click', () => { if (b.dataset.lang !== I.lang) setUiLang(b.dataset.lang); });
@@ -1267,6 +1453,8 @@
     document.querySelectorAll('dialog').forEach((d) => d.addEventListener('click', (e) => { if (e.target === d) d.close(); }));
 
     if (L.canRemember) restoreFolders();
+    const auto = SLOTS.map((s) => s.id).filter((slot) => !state.prefs.builtinOff[slot]);
+    if (auto.length) loadBuiltin(auto, false);
   }
 
   init();
