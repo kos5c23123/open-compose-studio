@@ -44,6 +44,7 @@ window.Engine = window.Engine || {};
       'brand.tagline': '選擇人物、服裝與姿勢，一鍵交由 AI 合成',
       'lang.group': '介面語言',
       'top.sources': '素材來源',
+      'top.github': '在 GitHub 查看原始碼',
       'top.settings': '設定',
 
       'stage.label': '合成組合',
@@ -274,6 +275,7 @@ window.Engine = window.Engine || {};
       'brand.tagline': 'Pick a face, an outfit and a pose. AI puts them together.',
       'lang.group': 'Interface language',
       'top.sources': 'Sources',
+      'top.github': 'View the source on GitHub',
       'top.settings': 'Settings',
 
       'stage.label': 'Composition',
