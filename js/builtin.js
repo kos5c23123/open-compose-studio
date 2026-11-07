@@ -25,7 +25,12 @@ window.Engine = window.Engine || {};
     return job;
   }
 
-  const imageUrl = (kind, tier, file) => `images/${kind}/${tier}/${encodeURIComponent(file)}`;
+  const RAW = 'https://raw.githubusercontent.com/kos5c23123/open-compose-studio/main/';
+  const remoteFull = /(^|\.)github\.io$/.test(location.hostname);
+  const imageUrl = (kind, tier, file) => {
+    const path = `images/${kind}/${tier}/${encodeURIComponent(file)}`;
+    return tier === 'w900' && remoteFull ? RAW + path : path;
+  };
 
   const stem = (file) => file.replace(/\.[^.]+$/, '');
 

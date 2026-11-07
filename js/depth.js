@@ -19,6 +19,8 @@ window.Engine = window.Engine || {};
     }
   };
   const jobs = {};
+  const RAW = 'https://raw.githubusercontent.com/kos5c23123/open-compose-studio/main/';
+  const remoteFull = /(^|\.)github\.io$/.test(location.hostname);
 
   // The key a built-in pose view uses: `series|pose number|angle`, e.g. `std|P001|high`.
   function keyOf(info) {
@@ -69,7 +71,7 @@ window.Engine = window.Engine || {};
       if (!key || !keys.has(key)) continue;
       const name = key.replace(/\|/g, '_');
       item.depthKey = key;
-      item.depthSrc = `${base}/w900/${encodeURIComponent(name)}.webp`;
+      item.depthSrc = remoteFull ? `${RAW}${base}/w900/${encodeURIComponent(name)}.webp` : `${base}/w900/${encodeURIComponent(name)}.webp`;
       item.depthThumbSrc = `${base}/w300/${encodeURIComponent(name)}.webp`;
       n++;
     }

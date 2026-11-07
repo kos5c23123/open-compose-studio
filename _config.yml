@@ -1,0 +1,8 @@
+# GitHub Pages deploys only the w300 thumbnails and the app itself.
+# The full-resolution w900 images stay in the repository and load from
+# raw.githubusercontent.com when the app runs on github.io.
+exclude:
+  - images/face/w900
+  - images/pose/w900
+  - images/pose-depth-official/w900
+  - images/outfit/w900
