@@ -58,6 +58,8 @@
     tab: 'face',
     filter: {},
     poseAngle: {},
+    // depth pack（tools/make_depth_poses.py）是否已載入
+    depth: { set: new Set(), ready: false, source: 'off', base: '', available: {} },
     page: { face: 1, outfit: 1, pose: 1 },
     pendingSlot: 'face',
     promptEdited: false,
@@ -74,6 +76,10 @@
       keepHair: true,
       remember: false,
       showSuggestive: false,
+      // 姿勢用 depth 圖而不是線稿（選了有 depth 的姿勢時自動開啟）
+      poseDepth: false,
+      // depth 來源：official（本機，質素最好）或 generated（CC0，可選）
+      depthSource: 'official',
       // 目前的分頁：library（素材庫）或 prompt
       page: 'library',
       // 按「清除」後不再自動載入該類內置圖庫，直至再按「使用內置圖庫」
@@ -81,7 +87,8 @@
       opts: {},
       selected: {},
       engines: {},
-      enhancer: {}
+      enhancer: {},
+      vision: { provider: 'gemini', model: '', baseUrl: '' }
     }
   };
 
@@ -115,6 +122,18 @@
     const s = state.prefs.enhancer;
     for (const f of E.enhancer.fields) if (s[f.key] == null && f.default != null) s[f.key] = f.default;
     return s;
+  }
+
+  // 圖片分析用的視覺模型：雲端沿用對應引擎的 key，本地沿用 enhancer 的地址/key
+  function visionSettings() {
+    const v = state.prefs.vision || (state.prefs.vision = { provider: 'gemini', model: '', baseUrl: '' });
+    const provider = v.provider || 'gemini';
+    const model = (v.model || '').trim();
+    if (provider === 'gemini') return { provider, model: model || E.vision.DEFAULTS.gemini, apiKey: engineSettings('gemini').apiKey };
+    if (provider === 'openai') return { provider, model: model || E.vision.DEFAULTS.openai, apiKey: engineSettings('openai').apiKey };
+    if (provider === 'grok') return { provider, model: model || E.vision.DEFAULTS.grok, apiKey: engineSettings('grok').apiKey };
+    const e = enhancerSettings();
+    return { provider: 'local', model: model || E.vision.DEFAULTS.local, baseUrl: (v.baseUrl || e.baseUrl || '').trim(), apiKey: e.apiKey };
   }
 
   // ---------- 介面語言 ----------
@@ -151,6 +170,7 @@
     renderPeek();
     if ($('#settingsDlg').open) renderSettings();
     E.organizer.refresh();
+    if (E.analyse) E.analyse.refresh();
     $('#promptNote').textContent = state.promptEdited ? t('note.edited') : '';
     setStatus('');
   }
@@ -235,7 +255,7 @@
 
   // ---------- 素材庫 ----------
   function emptyFilter() {
-    return { folder: '', q: '', series: '', cat: '', angle: '', section: '', hair: '', view: 'pose', type: '', color: '', tag: '' };
+    return { folder: '', q: '', series: '', cat: '', angle: '', section: '', hair: '', view: 'pose', depth: false, source: '', type: '', color: '', tag: '' };
   }
 
   // 素材以 { file, path } 表示；由 <input> 取得的 File 以 webkitRelativePath（或檔名）作為 path
@@ -276,7 +296,10 @@
       const segs = path.split('/');
       const folder = segs.length > 2 ? segs[segs.length - 2] : segs.length === 2 ? segs[0] : '';
       const name = f.name.replace(/\.[^.]+$/, '');
-      lib.push({ id, file: f, path, folder, name, info: C.parse(name), url: null, thumb: null });
+      const info = C.parse(name);
+      // 由原站載入的內衣、泳裝、性感服裝預設隱藏，和內置圖庫一致
+      const suggestive = !!(info && info.kind === 'outfit' && ['LNG', 'SWM', 'SXY', 'ANX'].includes(info.code));
+      lib.push({ id, file: f, path, folder, name, info, suggestive, url: null, thumb: null });
       added++;
     }
     lib.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
@@ -362,6 +385,8 @@
       return;
     }
     const items = E.builtin.toItems(lib);
+    // depth pack 已載入時，為姿勢加上 depth 圖
+    E.depth.attach(items.pose, state.depth.set, state.depth.base);
     // 自動載入期間按了「清除」的類別不再加入
     const wanted = fromClick ? slots : slots.filter((slot) => !state.prefs.builtinOff[slot]);
     for (const slot of wanted) {
@@ -374,22 +399,78 @@
     reselect();
   }
 
+  // depth pack 都只在本機；official 優先，generated 可選
+  async function loadDepthPack() {
+    state.depth.available = await E.depth.probe();
+    const wanted = state.prefs.depthSource || 'official';
+    const source = wanted !== 'off' && state.depth.available[wanted] ? wanted : 'off';
+    await applyDepthSource(source);
+  }
+
+  async function applyDepthSource(source) {
+    for (const item of state.libs.pose) {
+      delete item.depthKey;
+      delete item.depthSrc;
+      delete item.depthThumbSrc;
+    }
+    state.depth.source = source;
+    state.depth.set = new Set();
+    state.depth.base = '';
+    state.depth.ready = true;
+    let pack = null;
+    if (source !== 'off') {
+      pack = await E.depth.load(source);
+      if (pack) {
+        state.depth.set = pack.keys;
+        state.depth.base = pack.base;
+        for (const item of state.libs.pose) E.depth.attach([item], pack.keys, pack.base);
+      } else {
+        state.depth.source = 'off';
+      }
+    }
+    if (state.tab === 'pose') renderLibrary();
+    renderSlots();
+    updatePrompt();
+    renderDepthSettings();
+    if (pack) setStatus(t('status.depthReady', { n: pack.keys.size, source: t(`depth.source.${state.depth.source}`) }));
+  }
+
+  // 這張姿勢圖有沒有 depth 版本
+  const hasDepth = (item) => !!(item && item.info && item.info.kind === 'pose' && item.depthSrc);
+  // 顯示用網址：depth=true 時用 depth 版本（沒有就沿用線稿）
+  function refSrc(item, depth) {
+    if (depth && hasDepth(item)) return item.depthSrc;
+    return fullUrl(item);
+  }
+  function refThumb(item, depth) {
+    if (depth && hasDepth(item)) return item.depthThumbSrc || item.depthSrc;
+    return item.thumbSrc || fullUrl(item);
+  }
+
   function fullUrl(item) {
     if (isBuiltin(item)) return item.src;
     if (!item.url) item.url = URL.createObjectURL(item.file);
     return item.url;
   }
 
-  // 內置圖庫的圖片在需要時才下載，之後重用
-  function itemFile(item) {
-    if (item.file) return Promise.resolve(item.file);
-    if (!item.fileJob) {
-      item.fileJob = fetch(item.src)
+  // 內置圖庫（或 depth pack）的圖片在需要時才下載，之後重用
+  function itemFile(item, depth = false) {
+    const useDepth = depth && hasDepth(item);
+    if (!useDepth && item.file) return Promise.resolve(item.file);
+    if (useDepth && item.depthFile) return Promise.resolve(item.depthFile);
+    const src = useDepth ? item.depthSrc : item.src;
+    const slot = useDepth ? 'depthFileJob' : 'fileJob';
+    if (!item[slot]) {
+      item[slot] = fetch(src)
         .then((res) => (res.ok ? res.blob() : Promise.reject(new Error(String(res.status)))))
-        .then((b) => { item.file = new File([b], `${item.name}.webp`, { type: b.type || 'image/webp' }); return item.file; })
-        .catch((e) => { item.fileJob = null; throw new Error(t('status.libFetchFail'), { cause: e }); });
+        .then((b) => {
+          const file = new File([b], `${item.name}${useDepth ? '-depth' : ''}.webp`, { type: b.type || 'image/webp' });
+          if (useDepth) item.depthFile = file; else item.file = file;
+          return file;
+        })
+        .catch((e) => { item[slot] = null; throw new Error(t('status.libFetchFail'), { cause: e }); });
     }
-    return item.fileJob;
+    return item[slot];
   }
 
   // 縮圖：只在圖片接近可見範圍時才製作，約 320px 闊的 JPEG，製作後快取
@@ -460,6 +541,13 @@
   const sectionOf = (item) => (item.info && item.info.kind === 'face' ? item.info.section : 'other');
   const seriesOf = (item) => (item.info && item.info.kind === 'pose' ? item.info.series : '');
   const codeOf = (item) => (item.info && item.info.kind === 'outfit' ? item.info.code : '');
+  // 內置 400 套是我們用 prompt 生成的（CS-*）；由原站下載的是 SPR-0001 這類編號
+  const originOf = (item) => {
+    const i = item.info;
+    if (!i || i.kind !== 'outfit') return '';
+    if (i.code === 'ANM' || i.code === 'ANX') return 'anime';
+    return /^CS-/i.test(i.id) ? 'own' : 'original';
+  };
   function searchText(item) {
     const i = item.info;
     const parts = [item.path];
@@ -489,6 +577,7 @@
     }
     if (slot === 'outfit') {
       if (skip !== 'cat' && f.cat && codeOf(item) !== f.cat) return false;
+      if (skip !== 'source' && f.source && originOf(item) !== f.source) return false;
       if (skip !== 'type' && f.type && !tagsOf(item, 'types').includes(f.type)) return false;
       if (skip !== 'color' && f.color && !tagsOf(item, 'colors').includes(f.color)) return false;
     }
@@ -579,9 +668,9 @@
     renderSlots();
   }
 
-  // ---------- 分頁：素材庫 / Prompt ----------
+  // ---------- 分頁：素材庫 / Prompt / 圖片分析 ----------
   function setPage(page) {
-    state.prefs.page = page === 'prompt' ? 'prompt' : 'library';
+    state.prefs.page = page === 'prompt' || page === 'analyse' ? page : 'library';
     savePrefs();
     renderPage();
     window.scrollTo({ top: 0 });
@@ -590,14 +679,33 @@
     const page = state.prefs.page;
     $('#pageLibrary').hidden = page !== 'library';
     $('#pagePrompt').hidden = page !== 'prompt';
+    if ($('#pageAnalyse')) $('#pageAnalyse').hidden = page !== 'analyse';
     document.querySelectorAll('.page-tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.page === page)));
-    if (page === 'library') $('#dock').hidden = true;
-    else requestAnimationFrame(updateDock);
+    if (page === 'prompt') requestAnimationFrame(updateDock);
+    else $('#dock').hidden = true;
   }
   // 由 Prompt 分頁的格子或浮動列跳去素材庫的某一類
   function openLibrary(slot) {
     setTab(slot);
     setPage('library');
+  }
+
+  // 隨機揀一組：在目前篩選內各抽一張
+  function randomComposition() {
+    let picked = 0;
+    for (const s of SLOTS) {
+      const list = filtered(s.id);
+      if (!list.length) continue;
+      setSelected(s.id, list[Math.floor(Math.random() * list.length)]);
+      picked++;
+    }
+    if (!picked) { setStatus(t('picked.empty'), true); return; }
+    state.prefs.poseDepth = false;
+    savePrefs();
+    renderSlots();
+    if (redrawGrid) redrawGrid();
+    updatePrompt();
+    setStatus(t('picked.randomDone'));
   }
 
   // 素材庫頂部的「已揀」：三格縮圖，撳縮圖切換類別，撳 x 取消
@@ -606,15 +714,16 @@
       const item = state.selected[s.id];
       return el('div', { class: `pick${state.tab === s.id ? ' on' : ''}` },
         el('button', { class: 'thumb', type: 'button', 'aria-label': slotLabel(s.id), onclick: () => setTab(s.id) },
-          item ? el('img', { src: item.thumbSrc || fullUrl(item), alt: '' }) : icon(s.id)),
+          item ? el('img', { src: s.id === 'pose' ? refThumb(item, state.prefs.poseDepth) : (item.thumbSrc || fullUrl(item)), alt: '' }) : icon(s.id)),
         el('div', { class: 'txt' }, el('strong', { text: slotLabel(s.id) }),
           el('span', { text: item ? displayName(item) : t('slot.none'), title: item ? displayName(item) : '' })),
         item ? el('button', {
           class: 'x', type: 'button', 'aria-label': t('slot.remove'), title: t('slot.remove'),
-          onclick: () => { setSelected(s.id, null); renderSlots(); if (redrawGrid && state.tab === s.id) redrawGrid(); updatePrompt(); }
+          onclick: () => { setSelected(s.id, null); if (s.id === 'pose') state.prefs.poseDepth = false; savePrefs(); renderSlots(); if (redrawGrid && state.tab === s.id) redrawGrid(); updatePrompt(); }
         }, icon('x')) : null);
     });
     $('#picked').replaceChildren(el('span', { class: 'kicker', text: t('picked.title') }), ...picks,
+      el('button', { class: 'btn small pick-random', type: 'button', onclick: randomComposition }, icon('dice'), t('picked.random')),
       el('button', { class: 'btn primary pick-go', type: 'button', disabled: !SLOTS.some((s) => state.selected[s.id]), onclick: () => setPage('prompt') },
         icon('sparkle'), t('picked.go')));
   }
@@ -684,6 +793,13 @@
       rows.push(fgroup(t('lib.cat'), facetTabs(t('lib.cat'), [['', t('lib.allCats'), null], ...cats.map(([c, n]) => [c, c, n])],
         f.cat, (v) => { f.cat = v; rerender(); })));
     }
+    // 有 depth pack 時，可以切換看線稿或 depth 圖
+    if (lib.some((i) => i.depthSrc)) {
+      rows.push(fgroup(t('lib.depthView'), segmented(t('lib.depthView'),
+        [['line', t('lib.depth.line')], ['depth', t('lib.depth.depth')]],
+        f.depth ? 'depth' : 'line',
+        (v) => { f.depth = v === 'depth'; rerender(); })));
+    }
     rows.push(fgroup(t('lib.angle'), segmented(t('lib.angle'), [['', t('lib.allAngles')], ...C.ANGLES.map((a) => [a, t(`angle.${a}`)])], f.angle, (v) => { f.angle = v; rerender(); })),
       fgroup(t('lib.view'), segmented(t('lib.view'), [['pose', t('lib.view.pose')], ['card', t('lib.view.card')]], f.view, (v) => { f.view = v; rerender(); })));
     return rows;
@@ -693,12 +809,24 @@
     if (!lib.some(codeOf)) return [];
     const byCode = countBy(filtered(slot, 'cat'), codeOf);
     const present = C.OUTFIT_CODES.filter((c) => byCode.has(c));
-    return [
+    const rows = [
       fgroup(t('lib.cat'), facetTabs(t('lib.cat'), [['', t('lib.all'), filtered(slot, 'cat').length],
         ...present.map((c) => [c, C.outfitName(c), byCode.get(c) || 0])], f.cat, (v) => { f.cat = v; rerender(); })),
       tagFacet(slot, 'types', 'type', 'type', f, rerender, false),
       tagFacet(slot, 'colors', 'color', 'color', f, rerender, true)
     ].filter(Boolean);
+    // 同時有內置（我們生成）、原站和 CharaDB 服裝時，可以只看其中一邊
+    const origins = new Set(filtered(slot, 'source').map(originOf));
+    if (origins.size > 1) {
+      const base = filtered(slot, 'source');
+      const n = (v) => base.filter((i) => !v || originOf(i) === v).length;
+      const order = ['original', 'anime', 'own'].filter((o) => origins.has(o));
+      rows.unshift(fgroup(t('lib.source'), facetTabs(t('lib.source'), [
+        ['', t('lib.all'), n('')],
+        ...order.map((o) => [o, t(`lib.source.${o}`), n(o)])
+      ], f.source, (v) => { f.source = v; rerender(); })));
+    }
+    return rows;
   }
 
   function faceFacets(slot, lib, f, rerender) {
@@ -790,8 +918,14 @@
     const banner = loose.length ? el('div', { class: 'banner' }, icon('tag'),
       el('span', { text: t('org.unrecognized', { n: loose.length }) }),
       el('button', { class: 'btn small', onclick: () => E.organizer.open(slot, unsorted(slot)) }, t('org.fix'))) : null;
+    // 服裝庫只有內置（我們生成）的服裝時，提示可以一次過加入原站的 1,407 套
+    const originalBanner = slot === 'outfit' && lib.some((i) => originOf(i) === 'own') && !lib.some((i) => originOf(i) === 'original')
+      ? el('div', { class: 'banner' }, icon('folder-plus'),
+        el('span', { text: t('lib.original.note') }),
+        el('button', { class: 'btn small primary', type: 'button', onclick: () => pickFolder('outfit') }, t('lib.original.load')))
+      : null;
     $('#libFacets').replaceChildren(...rows);
-    box.replaceChildren(el('div', { class: 'lib-head' }, toolbar, banner, countLine), grid, more);
+    box.replaceChildren(el('div', { class: 'lib-head' }, toolbar, originalBanner, banner, countLine), grid, more);
     redrawGrid = renderGrid;
     renderGrid();
 
@@ -837,6 +971,10 @@
     return item.name;
   }
 
+  // 姿勢庫切到「depth」檢視時，縮圖改用 depth 圖（沒有 depth 的姿勢沿用線稿）
+  const poseThumb = (item) => (state.filter.pose.depth && item.depthThumbSrc
+    ? { ...item, thumbSrc: item.depthThumbSrc } : item);
+
   // 單張圖片
   function itemTile(slot, item, sel) {
     const i = item.info;
@@ -858,7 +996,7 @@
       class: 'item', 'data-id': item.id, 'aria-pressed': String(!!sel && sel.id === item.id),
       'aria-label': label, title: label === item.name ? item.path : `${label}\n${item.path}`,
       onclick: () => select(slot, item)
-    }, thumbImg(item), tag ? el('span', { class: 'tag', 'aria-hidden': 'true', text: tag }) : null,
+    }, thumbImg(slot === 'pose' ? poseThumb(item) : item), tag ? el('span', { class: 'tag', 'aria-hidden': 'true', text: tag }) : null,
       el('span', { class: 'item-name', 'aria-hidden': 'true', text: label }));
   }
 
@@ -873,7 +1011,7 @@
     const sub = i ? [C.seriesName(i.series), m.cat].filter(Boolean).join(' · ') : cur.name;
     const angleName = (item) => (item.info && item.info.angle ? t(`angle.${item.info.angle}`) : item.name);
 
-    const mainImg = thumbImg(cur);
+    const mainImg = thumbImg(poseThumb(cur));
     const main = el('button', {
       class: 'pmain', 'data-id': cur.id, 'aria-pressed': String(has(cur)),
       'aria-label': `${name} · ${angleName(cur)}`, title: cur.path,
@@ -885,11 +1023,11 @@
         type: 'button', 'data-id': item.id, class: item === cur ? 'on' : null, 'aria-pressed': String(has(item)),
         'aria-label': `${name} · ${angleName(item)}`, title: angleName(item),
         onclick: () => select(slot, item)
-      }, thumbImg(item), el('span', { 'aria-hidden': 'true', text: angleName(item) }));
+      }, thumbImg(poseThumb(item)), el('span', { 'aria-hidden': 'true', text: angleName(item) }));
       const show = () => {
         cur = item;
         if (item.info && item.info.angle) state.poseAngle[g.key] = item.info.angle;
-        setThumb(mainImg, item);
+        setThumb(mainImg, poseThumb(item));
         main.dataset.id = item.id;
         main.title = item.path;
         main.setAttribute('aria-label', `${name} · ${angleName(item)}`);
@@ -909,7 +1047,13 @@
 
   function select(slot, item) {
     const cur = state.selected[slot];
-    setSelected(slot, cur && cur.id === item.id ? null : item);
+    const next = cur && cur.id === item.id ? null : item;
+    setSelected(slot, next);
+    // 在「depth」檢視中揀姿勢，預設用 depth 圖生成；否則用線稿
+    if (slot === 'pose') {
+      state.prefs.poseDepth = !!(next && next.depthSrc && state.filter.pose.depth);
+      savePrefs();
+    }
     renderSlots();
     if (redrawGrid && state.tab === slot) redrawGrid();
     updatePrompt();
@@ -933,23 +1077,32 @@
       const host = document.querySelector(`.slot[data-slot="${s.id}"]`);
       const item = state.selected[s.id];
       const label = slotLabel(s.id);
+      // depth 切換放在標題列，免得佔用名稱的位置
+      const depth = s.id === 'pose' && item && item.depthSrc
+        ? el('button', {
+            class: `clear depth-toggle${state.prefs.poseDepth ? ' on' : ''}`, type: 'button',
+            'aria-pressed': String(!!state.prefs.poseDepth), 'aria-label': t('slot.depth'), title: t('slot.depthHint'),
+            onclick: () => { state.prefs.poseDepth = !state.prefs.poseDepth; savePrefs(); renderSlots(); updatePrompt(); }
+          }, icon('depth'), el('span', { class: 'depth-label', text: t('slot.depth') }))
+        : null;
       const head = el('div', { class: 'slot-label' },
         el('span', { class: 'num', text: s.num }),
         el('strong', { text: label }),
-        el('span', { class: 'en', text: s.en }));
+        el('span', { class: 'en', text: s.en }),
+        depth);
       const frame = el('button', {
         class: `slot-frame${item ? ' filled' : ''}${state.tab === s.id ? ' active' : ''}`,
         'aria-label': t('slot.aria', { label, name: item ? displayName(item) : t('slot.none') }),
         onclick: () => openLibrary(s.id)
       }, item
-        ? el('img', { src: fullUrl(item), alt: '' })
+        ? el('img', { src: s.id === 'pose' ? refSrc(item, state.prefs.poseDepth) : fullUrl(item), alt: '' })
         : el('span', { class: 'slot-empty' },
           el('span', { class: 'glyph' }, icon(s.id)),
           el('span', { text: t(`slot.pick.${s.id}`) })));
       const meta = el('div', { class: 'slot-meta' },
         el('span', { class: 'name', text: item ? displayName(item) : t('slot.none'), title: item ? item.path : null }),
-        item ? el('button', { class: 'clear icon-only', type: 'button', 'aria-label': t('slot.copy'), title: t('slot.copy'), onclick: () => copyImage(item) }, icon('copy')) : null,
-        item ? el('button', { class: 'clear', onclick: () => { setSelected(s.id, null); renderSlots(); renderLibrary(); updatePrompt(); } }, icon('x'), t('slot.remove')) : null);
+        item ? el('button', { class: 'clear icon-only', type: 'button', 'aria-label': t('slot.copy'), title: t('slot.copy'), onclick: () => copyImage(item, s.id === 'pose' && state.prefs.poseDepth) }, icon('copy')) : null,
+        item ? el('button', { class: 'clear', onclick: () => { setSelected(s.id, null); if (s.id === 'pose') state.prefs.poseDepth = false; savePrefs(); renderSlots(); renderLibrary(); updatePrompt(); } }, icon('x'), t('slot.remove')) : null);
       host.replaceChildren(head, frame, meta);
     }
     renderPicked();
@@ -976,7 +1129,7 @@
     const cur = currentTab();
     $('#sceneTabs').replaceChildren(...E.sceneTabs.map((tab) => {
       const n = tab.groups.reduce((sum, id) => sum + (state.prefs.opts[id] || []).length, 0)
-        + (tab.fields ? ['#outfitText', '#hairText', '#extraText'].filter((id) => $(id).value.trim()).length : 0);
+        + (tab.fields ? ['#outfitText', '#hairText', '#poseText', '#extraText'].filter((id) => $(id) && $(id).value.trim()).length : 0);
       return el('button', {
         type: 'button', class: 'stab', role: 'tab', 'aria-selected': String(tab === cur),
         onclick: () => { if (state.prefs.sceneTab !== tab.id) { state.prefs.sceneTab = tab.id; savePrefs(); renderScene(true); } }
@@ -1092,7 +1245,7 @@
         type: 'button', class: 'dock-slot', title: slotLabel(s.id),
         'aria-label': t('slot.aria', { label: slotLabel(s.id), name: item ? displayName(item) : t('slot.none') }),
         onclick: () => openLibrary(s.id)
-      }, item ? el('img', { src: fullUrl(item), alt: '' }) : icon(s.id));
+      }, item ? el('img', { src: s.id === 'pose' ? refThumb(item, state.prefs.poseDepth) : fullUrl(item), alt: '' }) : icon(s.id));
     }));
     $('#dockStatus').textContent = $('#status').textContent;
     $('#dockGo').disabled = $('#generate').disabled;
@@ -1113,10 +1266,19 @@
 
   // ---------- Prompt ----------
   function orderedRefs() {
-    return ['face', 'outfit', 'pose'].filter((r) => state.selected[r]).map((role) => ({ role, item: state.selected[role] }));
+    return ['face', 'outfit', 'pose'].filter((r) => state.selected[r]).map((role) => {
+      const item = state.selected[role];
+      const depth = role === 'pose' && !!state.prefs.poseDepth && hasDepth(item);
+      return { role, item, depth };
+    });
   }
   function currentText() {
-    return { outfit: $('#outfitText').value, hair: $('#hairText').value, extra: $('#extraText').value };
+    return {
+      outfit: $('#outfitText').value,
+      hair: $('#hairText').value,
+      pose: $('#poseText') ? $('#poseText').value : '',
+      extra: $('#extraText').value
+    };
   }
   function buildPrompt() {
     return E.buildPrompt({
@@ -1197,19 +1359,22 @@
 
     try {
       const images = [];
-      for (const r of refs) images.push({ role: r.role, ...(await prepareImage(await itemFile(r.item))) });
-      const blobs = await adapter.generate({
+      for (const r of refs) images.push({ role: r.role, ...(await prepareImage(await itemFile(r.item, r.depth))) });
+      const results = await adapter.generate({
         prompt, images, aspect,
         size: E.sizeFor(aspect),
         settings: engineSettings(adapter.id),
         signal: ctrl.signal,
         onStatus: (m) => setStatus(m)
       });
+      // 引擎可以回傳 Blob，也可以回傳 { url }（例如 Qwen 的臨時圖片網址）
       const time = new Date();
-      for (const blob of blobs) {
-        state.history.unshift({ url: URL.createObjectURL(blob), blob, prompt, composition, engine: adapter.id, time });
+      for (const r of results) {
+        const isBlob = r instanceof Blob;
+        const url = isBlob ? URL.createObjectURL(r) : String((r && r.url) || r);
+        state.history.unshift({ url, blob: isBlob ? r : null, prompt, composition, engine: adapter.id, time });
       }
-      setStatus(t('status.done', { n: blobs.length }));
+      setStatus(t('status.done', { n: results.length }));
       renderResult();
     } catch (e) {
       if (e.name === 'AbortError') setStatus(t('status.cancelled'));
@@ -1241,6 +1406,7 @@
   function snapshotComposition() {
     return {
       refs: { ...state.selected },
+      poseDepth: !!state.prefs.poseDepth,
       opts: JSON.parse(JSON.stringify(state.prefs.opts)),
       text: currentText(),
       keepHair: state.prefs.keepHair,
@@ -1263,8 +1429,10 @@
     state.prefs.opts = JSON.parse(JSON.stringify(c.opts));
     state.prefs.keepHair = c.keepHair;
     state.prefs.lang = c.lang;
+    state.prefs.poseDepth = !!c.poseDepth;
     $('#outfitText').value = c.text.outfit;
     $('#hairText').value = c.text.hair;
+    if ($('#poseText')) $('#poseText').value = c.text.pose || '';
     $('#extraText').value = c.text.extra;
     $('#keepHair').checked = c.keepHair;
     $('#lang').value = c.lang;
@@ -1287,14 +1455,34 @@
   function openViewer(h) {
     $('#viewerImg').src = h.url;
     $('#viewerPrompt').textContent = h.prompt;
-    $('#viewerRefs').replaceChildren(...SLOTS.filter((s) => h.composition.refs[s.id]).map((s) => el('figure', {},
-      el('img', { src: fullUrl(h.composition.refs[s.id]), alt: '' }),
-      el('figcaption', { text: slotLabel(s.id) }))));
+    $('#viewerRefs').replaceChildren(...SLOTS.filter((s) => h.composition.refs[s.id]).map((s) => {
+      const item = h.composition.refs[s.id];
+      const depth = s.id === 'pose' && h.composition.poseDepth;
+      return el('figure', {},
+        el('img', { src: refSrc(item, depth), alt: '' }),
+        el('figcaption', { text: depth ? `${slotLabel(s.id)} · depth` : slotLabel(s.id) }));
+    }));
     $('#viewerRestore').onclick = () => restoreComposition(h);
     const a = $('#viewerDownload');
-    a.href = h.url;
     const stamp = h.time.toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    a.download = `compose-${stamp}.${h.blob.type === 'image/jpeg' ? 'jpg' : 'png'}`;
+    const extOf = (x) => {
+      if (x && x.type) return x.type === 'image/jpeg' ? 'jpg' : x.type === 'image/webp' ? 'webp' : 'png';
+      const m = String(x || '').match(/\.(png|jpe?g|webp)(?:[?#]|$)/i);
+      return m ? m[1].toLowerCase().replace('jpeg', 'jpg') : 'png';
+    };
+    a.href = h.url;
+    a.download = `compose-${stamp}.${extOf(h.blob || h.url)}`;
+    // 遠端結果（Qwen）先試下載成 Blob，下載鍵就一定有反應；CORS 唔准就保留原本網址
+    if (!h.blob) {
+      fetch(h.url)
+        .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('fetch failed'))))
+        .then((b) => {
+          h.blob = b;
+          a.href = URL.createObjectURL(b);
+          a.download = `compose-${stamp}.${extOf(b)}`;
+        })
+        .catch(() => { /* 保留遠端網址 */ });
+    }
     $('#viewerCopy').onclick = () => copy(h.prompt);
     $('#viewerDlg').showModal();
   }
@@ -1313,9 +1501,9 @@
     return new Promise((resolve, reject) => c.toBlob((b) => (b ? resolve(b) : reject(new Error(t('status.copyImageFail')))), 'image/png'));
   }
   // 把 Promise 直接交給 ClipboardItem，讓 write 在點擊當下呼叫（Safari 需要）
-  async function copyImage(item) {
+  async function copyImage(item, depth = false) {
     try {
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': toPng(itemFile(item)) })]);
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': toPng(itemFile(item, depth)) })]);
       setStatus(t('status.imageCopied'));
     } catch (e) {
       setStatus(t('status.copyImageFail'), true);
@@ -1363,6 +1551,28 @@
     return el('div', { class: 'field' }, el('label', { for: id, text: tx(f.label) }), input);
   }
 
+  // 設定 > 圖片分析：服務、模型、（本地）地址
+  function renderVisionFields() {
+    const v = state.prefs.vision || (state.prefs.vision = { provider: 'gemini', model: '', baseUrl: '' });
+    const provider = v.provider || 'gemini';
+    const sel = el('select', { class: 'pill-select', id: 'visionProvider', 'aria-label': t('vision.provider') },
+      ...['gemini', 'openai', 'grok', 'local'].map((p) => el('option', { value: p, text: t(`an.provider.${p}`), selected: provider === p })));
+    // 不同服務的模型名稱不通用，切換時清空自訂值
+    sel.addEventListener('change', () => { v.provider = sel.value; v.model = ''; savePrefs(); renderVisionFields(); });
+    const model = el('input', { type: 'text', id: 'visionModel', value: v.model || '', placeholder: t('vision.modelPh', { model: E.vision.DEFAULTS[provider] }), autocomplete: 'off', spellcheck: 'false' });
+    model.addEventListener('input', () => { v.model = model.value; savePrefs(); });
+    const rows = [
+      el('div', { class: 'field' }, el('label', { for: 'visionProvider', text: t('vision.provider') }), sel),
+      el('div', { class: 'field' }, el('label', { for: 'visionModel', text: t('vision.model') }), model)
+    ];
+    if (provider === 'local') {
+      const base = el('input', { type: 'text', id: 'visionBase', value: v.baseUrl || '', placeholder: t('vision.baseUrlPh'), autocomplete: 'off', spellcheck: 'false' });
+      base.addEventListener('input', () => { v.baseUrl = base.value; savePrefs(); });
+      rows.push(el('div', { class: 'field' }, el('label', { for: 'visionBase', text: t('vision.baseUrl') }), base));
+    }
+    $('#visionFields').replaceChildren(...rows);
+  }
+
   function renderSettings() {
     const list = $('#engineList');
     list.replaceChildren(...E.adapters.all().map((a) => {
@@ -1378,7 +1588,43 @@
     $('#engineFields').replaceChildren(...a.fields.map((f) => fieldInput(f, s)));
     const es = enhancerSettings();
     $('#enhancerFields').replaceChildren(...E.enhancer.fields.map((f) => fieldInput(f, es)));
+    renderVisionFields();
+    renderDepthSettings();
     $('#remember').checked = !!state.prefs.remember;
+  }
+
+  function renderDepthSettings() {
+    const host = $('#depthSettings');
+    if (!host) return;
+    const available = state.depth.available || {};
+    const current = state.depth.source || 'off';
+    const choices = [['off', t('depth.source.off')]];
+    for (const id of ['official', 'generated']) {
+      if (available[id]) choices.push([id, `${t(`depth.source.${id}`)} · ${available[id].count}`]);
+    }
+    const sel = el('select', { class: 'pill-select', id: 'depthSource' },
+      ...choices.map(([value, text]) => el('option', { value, text, selected: current === value })));
+    // 未安裝的來源不會出現在選單；pref 保留，下次安裝後重新載入就會用返
+    if (!choices.some(([value]) => value === current)) sel.value = 'off';
+    sel.addEventListener('change', async () => {
+      state.prefs.depthSource = sel.value;
+      savePrefs();
+      await applyDepthSource(sel.value);
+    });
+    const rows = [
+      el('div', { class: 'field' },
+        el('label', { for: 'depthSource', text: t('set.depthSource') }),
+        sel)
+    ];
+    if (!available.official && !available.generated) {
+      rows.push(el('p', { class: 'help', text: t('depth.none') }));
+    } else {
+      const notes = [];
+      if (available.official) notes.push(t('depth.officialNote', { n: available.official.count }));
+      if (available.generated) notes.push(t('depth.generatedNote', { n: available.generated.count }));
+      rows.push(el('p', { class: 'help', text: notes.join(' ') }));
+    }
+    host.replaceChildren(...rows);
   }
   function renderEngineName() {
     const a = E.adapters.get(state.prefs.engine);
@@ -1386,12 +1632,39 @@
     $('#engineIcon').setAttribute('href', a.kind === 'local' ? '#i-cpu' : '#i-cloud');
   }
 
+  // 由「圖片分析」把結果帶到 Prompt 頁
+  function useOutfitText(text) {
+    setSelected('outfit', null);
+    // prompt builder 會加「Outfit:」，避免變成「Outfit: wearing …」
+    const clean = String(text).trim().replace(/^(wearing|dressed in)\s+/i, '').replace(/^身穿/, '');
+    $('#outfitText').value = clean;
+    state.promptEdited = false;
+    renderSlots();
+    updatePrompt(true);
+    renderSceneTabs();
+    setPage('prompt');
+  }
+  function usePoseText(text) {
+    setSelected('pose', null);
+    state.prefs.poseDepth = false;
+    $('#poseText').value = text;
+    state.promptEdited = false;
+    savePrefs();
+    renderSlots();
+    updatePrompt(true);
+    renderSceneTabs();
+    setPage('prompt');
+  }
+
   // ---------- 啟動 ----------
   function init() {
     loadPrefs();
     E.organizer.init({ el, icon, t, thumbImg, setStatus, libraryItems: (slot) => state.libs[slot], apply: applyOrganized });
+    if (E.analyse) E.analyse.init({ el, icon, t, setStatus, visionSettings, useOutfit: useOutfitText, usePose: usePoseText });
+    else setStatus('Analyse failed to load; reload the page with a hard refresh.', true);
     I.set(state.prefs.uiLang || I.detect());
     applyStatic();
+    if (E.analyse) E.analyse.refresh();
     $('#lang').value = state.prefs.lang;
     $('#keepHair').checked = !!state.prefs.keepHair;
 
@@ -1404,6 +1677,7 @@
     renderEngineName();
     updatePrompt(true);
     watchDock();
+    loadDepthPack();
     document.querySelectorAll('.page-tab').forEach((b) => b.addEventListener('click', () => setPage(b.dataset.page)));
 
     document.querySelectorAll('.lang-switch [data-lang]').forEach((b) => {
@@ -1438,7 +1712,7 @@
     $('#resetPrompt').addEventListener('click', () => updatePrompt(true));
     $('#enhance').addEventListener('click', enhance);
     $('#prompt').addEventListener('input', () => { state.promptEdited = true; $('#promptNote').textContent = t('note.edited'); updateGenerateButton(); });
-    for (const id of ['#outfitText', '#hairText', '#extraText']) $(id).addEventListener('input', () => { updatePrompt(); renderSceneTabs(); });
+    for (const id of ['#outfitText', '#hairText', '#poseText', '#extraText']) if ($(id)) $(id).addEventListener('input', () => { updatePrompt(); renderSceneTabs(); });
     $('#resetScene').addEventListener('click', resetScene);
     $('#dockGo').addEventListener('click', generate);
     $('#keepHair').addEventListener('change', (e) => { state.prefs.keepHair = e.target.checked; savePrefs(); updatePrompt(); });

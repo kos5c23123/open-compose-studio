@@ -9,7 +9,9 @@ window.Engine = window.Engine || {};
       face: (n, hair) => `Image ${n} (person): keep this person's identity, with the same face, facial features and skin tone${hair ? ', and the same hairstyle' : ''}.`,
       outfit: (n) => `Image ${n} (outfit): dress the person in exactly this outfit, matching the garments, colors, materials and accessories. Use only the clothing from this image.`,
       pose: (n) => `Image ${n} (pose): a faceless grey mannequin line drawing. Match its body pose, limb positions and orientation exactly, but do not copy its line-art style or grey color.`,
+      poseDepth: (n) => `Image ${n} (pose depth): a grayscale depth map (white = nearer). Match its body pose, limb positions and orientation exactly, and use it only as a depth reference; do not copy its flat grey look.`,
       outfitText: (t) => `Outfit: ${t}.`,
+      poseText: (t) => `Pose: ${t}.`,
       hair: (t) => `Hairstyle: ${t}.`,
       expression: (t) => `Expression: ${t}.`,
       place: (t) => `Setting: ${t}.`,
@@ -26,7 +28,9 @@ window.Engine = window.Engine || {};
       face: (n, hair) => `${n}枚目（人物）：この人物の顔立ちと肌の色をそのまま保ってください${hair ? '。髪型も同じにしてください' : ''}。`,
       outfit: (n) => `${n}枚目（服装）：この服装（アイテム・色・素材・小物）をそのまま着せてください。この画像からは服装だけを使ってください。`,
       pose: (n) => `${n}枚目（ポーズ）：顔のないグレーのマネキンの線画です。体のポーズ、手足の位置、向きを正確に合わせてください。線画のタッチやグレーの色は真似しないでください。`,
+      poseDepth: (n) => `${n}枚目（ポーズの深度マップ）：白いほど手前に見えるグレースケールの深度マップです。体のポーズ、手足の位置、向きを正確に合わせ、深度の参考としてだけ使ってください。平らなグレーの見た目は真似しないでください。`,
       outfitText: (t) => `服装：${t}。`,
+      poseText: (t) => `ポーズ：${t}。`,
       hair: (t) => `髪型：${t}。`,
       expression: (t) => `表情：${t}。`,
       place: (t) => `場所：${t}。`,
@@ -43,7 +47,9 @@ window.Engine = window.Engine || {};
       face: (n, hair) => `第 ${n} 張（人物）：保持此人的臉部特徵與膚色不變${hair ? '，髮型亦保持一致' : ''}。`,
       outfit: (n) => `第 ${n} 張（服裝）：讓人物穿上這套服裝，款式、顏色、材質與配飾都要一致。只採用此圖中的服裝。`,
       pose: (n) => `第 ${n} 張（姿勢）：一張無臉灰色人偶線稿。準確跟隨其身體姿勢、四肢位置與朝向，但不要模仿線稿畫風或灰色。`,
+      poseDepth: (n) => `第 ${n} 張（姿勢深度圖）：一張灰階 depth map（越白越近）。準確跟隨其身體姿勢、四肢位置與朝向，只作深度參考，不要模仿其平灰色調。`,
       outfitText: (t) => `服裝：${t}。`,
+      poseText: (t) => `姿勢：${t}。`,
       hair: (t) => `髮型：${t}。`,
       expression: (t) => `表情：${t}。`,
       place: (t) => `場景：${t}。`,
@@ -81,10 +87,12 @@ window.Engine = window.Engine || {};
       const n = i + 1;
       if (r.role === 'face') lines.push(t.face(n, keepHair && !hairText));
       if (r.role === 'outfit') lines.push(t.outfit(n));
-      if (r.role === 'pose') lines.push(t.pose(n));
+      if (r.role === 'pose') lines.push(r.depth ? t.poseDepth(n) : t.pose(n));
     });
 
     if (!roles.includes('outfit') && outfitText) lines.push(t.outfitText(outfitText));
+    const poseText = (text.pose || '').trim();
+    if (!roles.includes('pose') && poseText) lines.push(t.poseText(poseText));
     if (hairText) lines.push(t.hair(hairText));
 
     const expression = terms('expression', opts, lang);

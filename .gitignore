@@ -10,5 +10,13 @@ materials/
 *.part
 !docs/**
 !images/**/*.webp
+# Depth 圖只留本機，公開 site 不包含：
+#   official  = ギア POSE-DB-02（已獲授權收錄，會 commit）
+#   generated = Shisei CC0 線稿 + Depth Anything V2（可選，只留本機）
+images/pose-depth/
+data/depth.js
+# 生成 depth 用的模型及 venv
+tools/.cache/
+tools/.venv/
 .DS_Store
 __pycache__/

@@ -13,16 +13,46 @@ Faces (images/face/, data "face")
   originals are only on the author's site.
 
 Poses (images/pose/, data "pose")
-  Line art from Shisei 姿勢, https://github.com/wquguru/shisei (images CC0 1.0),
-  resized to web-size WebP. Shisei's ids (P001, U001, S001, D001) and its own
-  English pose descriptions (standard series) are kept. Shisei's pose names and
-  categories follow the pose catalog of ai-pose-gallery by ギア (@giaaibusi),
-  which Shisei credits but does not license, so they are not included here.
+  1,439 views from ポーズ集 POSE-DB-01 by ギア (@giaaibusi),
+  https://ai-pose-gallery.pages.dev/, included as w300 thumbnails and
+  full-resolution w900 WebP copies (900×1200).
+  Upstream terms: images are free for creative work but may not be redistributed,
+  reposted or resold, and may not depict real people or minors. See GIA.md.
+
+Depth maps (images/pose-depth-official/, data "depth-official")
+  1,439 depth views from Depthポーズ集 POSE-DB-02 by ギア, included as w300
+  thumbnails and full-resolution w900 WebP copies (900×1200) under the same
+  upstream terms as the poses above. See GIA.md.
 
 Outfits (images/outfit/, data "outfit")
-  Made for this project with an AI image model from our own text prompts.
-  Dedicated to the public domain under CC0 1.0 (see LICENSE-images).
+  400 outfits made for this project with an AI image model from our own text
+  prompts, dedicated to the public domain under CC0 1.0 (see LICENSE-images).
+
+ギア original outfits (images/outfit/SPR-*, SUM-*, AUT-*, WIN-*, LNG-*, PTY-*,
+SWM-*, SXY-*, data "outfit")
+  1,407 outfits from 衣装集 COSTUME-DB-01 by ギア, included as w300 thumbnails
+  and full-resolution w900 WebP copies (1366×2048). Upstream terms are the same
+  as the poses above. See GIA.md.
+
+CharaDB anime outfits (images/outfit/ANM-*, ANX-*, data "outfit")
+  440 outfits by たき AI (@taki_auto), https://charadb-2fi.pages.dev/, included as
+  w300 thumbnails and full-resolution w900 WebP copies (1024×1536). Upstream
+  terms: images are reference-only, may not be
+  redistributed, reposted or resold, and may not be used to depict real people or
+  minors. Tags/names are CC0 1.0 and the official code is MIT, but the images are
+  neither. See CHARADB.md.
+
+Local packs (generated on your machine; not part of this repository):
+
+Generated depth poses (optional)
+  tools/make_depth_poses.py generates depth maps from Shisei's CC0 line art with
+  Depth Anything V2 Small (Apache-2.0,
+  https://github.com/DepthAnything/Depth-Anything-V2). The input line art is CC0
+  and the generated depth maps are dedicated to the public domain under CC0 1.0.
+  They are an optional local pack in images/pose-depth/ and data/depth.js, are
+  git-ignored, and are loaded only when Settings → Depth poses → Generated (CC0)
+  is selected. They are not part of the repository or the GitHub Pages site.
 
 All people shown are AI-generated adults or faceless mannequins and do not depict
 real people. Open Compose Studio is not affiliated with or endorsed by あぎ, ギア
-or the Shisei authors.
+or たき AI.

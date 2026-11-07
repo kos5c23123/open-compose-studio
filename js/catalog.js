@@ -16,7 +16,7 @@ window.Engine = window.Engine || {};
   const HAIRS = ['ショート', 'ミディアム', 'セミロング', 'ロング'];
   // 自製人物檔名中的髮型代號，對應原站的髮型分類
   // 服裝檔名前綴，次序與原站的分類按鈕一致
-  const OUTFIT_CODES = ['SPR', 'SUM', 'AUT', 'WIN', 'LNG', 'PTY', 'SWM', 'SXY'];
+  const OUTFIT_CODES = ['SPR', 'SUM', 'AUT', 'WIN', 'LNG', 'PTY', 'SWM', 'SXY', 'ANM', 'ANX'];
   const HAIR_CODES = { short: 'ショート', medium: 'ミディアム', semilong: 'セミロング', long: 'ロング', other: '' };
   const CATALOG_FORMAT = 'compose-studio-catalog';
   const META_KEY = 'compose-studio:meta:v1';
@@ -196,6 +196,8 @@ window.Engine = window.Engine || {};
       'outfit.PTY': '派對',
       'outfit.SWM': '泳裝',
       'outfit.SXY': '性感',
+      'outfit.ANM': '動漫',
+      'outfit.ANX': '動漫（性感）',
       'section.face': '臉部',
       'section.styling': '造型',
       'hair.ショート': '短髮',
@@ -222,6 +224,8 @@ window.Engine = window.Engine || {};
       'outfit.PTY': 'Party',
       'outfit.SWM': 'Swimwear',
       'outfit.SXY': 'Sexy',
+      'outfit.ANM': 'Anime',
+      'outfit.ANX': 'Anime (suggestive)',
       'section.face': 'Face',
       'section.styling': 'Styling',
       'hair.ショート': 'Short',

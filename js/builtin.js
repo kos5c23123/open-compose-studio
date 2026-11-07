@@ -52,7 +52,8 @@ window.Engine = window.Engine || {};
         const id = stem(file);
         // 分類用我哋自己分的動作；名稱用 Shisei 的英文描述（只有標準系列有）
         C.addBuiltin('pose', id, [r.action ? `action.${r.action}` : '', r.desc]);
-        pose.push(entry('pose', file, { kind: 'pose', series, num: r.num, angle, key: `${series}|${r.num}`, id }, r.rating === 'suggestive', {}));
+        // key 用資料庫的短系列名（std/sexy/upper/duo），和 depth pack 的 key 一致
+        pose.push(entry('pose', file, { kind: 'pose', series, num: r.num, angle, key: `${r.series}|${r.num}`, id }, r.rating === 'suggestive', {}));
       }
     }
     const outfit = lib.outfit.map((r) => {
@@ -82,7 +83,14 @@ window.Engine = window.Engine || {};
       'action.lying': '躺臥', 'action.bending': '彎腰', 'action.dynamic': '伸展動作',
       'action.sign': '手勢', 'action.face': '手近面', 'action.raised': '舉手', 'action.reach': '伸手',
       'action.crossed': '交叉／抱胸', 'action.relaxed': '自然擺手',
-      'action.seated': '一齊坐', 'action.floor': '地上', 'action.lift': '抱起／托舉'
+      'action.seated': '一齊坐', 'action.floor': '地上', 'action.lift': '抱起／托舉',
+      'action.躺臥': '躺臥', 'action.性感（露骨）': '性感（露骨）', 'action.坐': '坐', 'action.站立': '站立',
+      'action.可愛': '可愛', 'action.托胸／強調': '托胸／強調', 'action.跪姿／四肢著地': '跪姿／四肢著地',
+      'action.特殊': '特殊', 'action.正常位': '正常位', 'action.跪': '跪', 'action.側坐': '側坐',
+      'action.後背位': '後背位', 'action.背面坐': '背面坐', 'action.蹲': '蹲', 'action.前傾': '前傾',
+      'action.靠近臉': '靠近臉', 'action.騎乘位': '騎乘位', 'action.站姿': '站姿', 'action.站姿貼近': '站姿貼近',
+      'action.後仰': '後仰', 'action.扭轉': '扭轉', 'action.側位': '側位', 'action.坐位': '坐位',
+      'action.對面坐': '對面坐', 'action.坐位貼近': '坐位貼近', 'action.貼近': '貼近'
     },
     en: {
       'lib.useBuiltin': 'Use the built-in library',
@@ -100,7 +108,14 @@ window.Engine = window.Engine || {};
       'action.lying': 'Lying', 'action.bending': 'Bending', 'action.dynamic': 'Stretch / action',
       'action.sign': 'Hand sign', 'action.face': 'Hand near face', 'action.raised': 'Arms raised', 'action.reach': 'Reaching',
       'action.crossed': 'Arms crossed', 'action.relaxed': 'Relaxed arms',
-      'action.seated': 'Seated together', 'action.floor': 'On the floor', 'action.lift': 'Lift / carry'
+      'action.seated': 'Seated together', 'action.floor': 'On the floor', 'action.lift': 'Lift / carry',
+      'action.躺臥': 'Lying', 'action.性感（露骨）': 'Sensual (explicit)', 'action.坐': 'Sitting', 'action.站立': 'Standing',
+      'action.可愛': 'Cute', 'action.托胸／強調': 'Chest emphasis', 'action.跪姿／四肢著地': 'Kneeling / all fours',
+      'action.特殊': 'Special', 'action.正常位': 'Missionary', 'action.跪': 'Kneeling', 'action.側坐': 'Side sitting',
+      'action.後背位': 'Doggy style', 'action.背面坐': 'Reverse sitting', 'action.蹲': 'Squatting', 'action.前傾': 'Leaning forward',
+      'action.靠近臉': 'Face close', 'action.騎乘位': 'Cowgirl', 'action.站姿': 'Standing pose', 'action.站姿貼近': 'Standing close',
+      'action.後仰': 'Leaning back', 'action.扭轉': 'Twisted', 'action.側位': 'Side position', 'action.坐位': 'Seated',
+      'action.對面坐': 'Face-to-face sitting', 'action.坐位貼近': 'Seated close', 'action.貼近': 'Close contact'
     }
   });
 })();
